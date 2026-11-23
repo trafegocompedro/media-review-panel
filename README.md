@@ -2,7 +2,7 @@
 
 **[English](#english) · [Português](#português)**
 
-**Made by / Feito por [Tráfego Com Pedro](https://www.instagram.com/trafegocompedro/)** · [LinkedIn](https://www.linkedin.com/in/soupedrosimoes/) · [Instagram](https://www.instagram.com/trafegocompedro/)
+**Made by / Feito por [Tráfego Com Pedro](https://trafegocompedro.com.br)** · [Site](https://trafegocompedro.com.br) · [LinkedIn](https://www.linkedin.com/in/soupedrosimoes/) · [Instagram](https://www.instagram.com/trafegocompedro/)
 
 ---
 
@@ -59,6 +59,12 @@ claude plugin install media-review-panel --marketplace trafegocompedro/media-rev
 Then type `/media-review demo` to see the panel with sample data.
 
 **Settings** (optional): *Panel language* (auto, en, pt), *Mascot* (on, off) and *Open the panel automatically* (on, off).
+
+### About the author
+
+**Pedro Simões**, Media Strategist at **[Tráfego Com Pedro](https://trafegocompedro.com.br)**. Paid media (Google Ads, Meta Ads, TikTok Ads, LinkedIn Ads) and digital marketing, with AI applied to campaign analysis.
+
+[Site](https://trafegocompedro.com.br) · [LinkedIn](https://www.linkedin.com/in/soupedrosimoes/) · [Instagram](https://www.instagram.com/trafegocompedro/)
 
 ### License
 
@@ -119,6 +125,12 @@ claude plugin install media-review-panel --marketplace trafegocompedro/media-rev
 Depois digite `/media-review demo` para ver o painel com dados de exemplo.
 
 **Configurações** (opcionais): *Panel language* (auto, en, pt), *Mascot* (on, off) e *Open the panel automatically* (on, off).
+
+### Sobre o autor
+
+**Pedro Simões**, Estrategista de Mídia da **[Tráfego Com Pedro](https://trafegocompedro.com.br)**. Tráfego pago (Google Ads, Meta Ads, TikTok Ads, LinkedIn Ads) e marketing digital, com IA aplicada à análise de campanhas.
+
+[Site](https://trafegocompedro.com.br) · [LinkedIn](https://www.linkedin.com/in/soupedrosimoes/) · [Instagram](https://www.instagram.com/trafegocompedro/)
 
 ### Licença
 
