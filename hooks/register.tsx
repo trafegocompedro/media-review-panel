@@ -11,6 +11,7 @@ import { robot, robotText } from './mascot'
 import { applyReport, autoWarnings, daysBetween, mergeAccount, newReview } from './review'
 
 const PANE = 'media-review'
+const SITE = 'https://trafegocompedro.com.br'
 const LINKEDIN = 'https://www.linkedin.com/in/soupedrosimoes/'
 const INSTAGRAM = 'https://www.instagram.com/trafegocompedro/'
 
@@ -21,6 +22,8 @@ const calls = atom({ plugin: 'media-review-panel', key: 'calls' } as const, [], 
 const mascot = atom({ plugin: 'media-review-panel', key: 'mascot' } as const, null, { shape: 'mascot-1' })
 const collapsed = atom({ plugin: 'media-review-panel', key: 'collapsed' } as const, [])
 const openCalls = atom({ plugin: 'media-review-panel', key: 'openCalls' } as const, [])
+const openTables = atom({ plugin: 'media-review-panel', key: 'openTables' } as const, [])
+const showAllCalls = atom({ plugin: 'media-review-panel', key: 'showAllCalls' } as const, false)
 const muted = atom({ plugin: 'media-review-panel', key: 'muted' } as const, false)
 const lang = atom({ plugin: 'media-review-panel', key: 'lang' } as const, 'en')
 const counter = atom({ plugin: 'media-review-panel', key: 'counter' } as const, 0)
@@ -193,6 +196,17 @@ const seriesUnit = (col: string, ds: Dataset): string => {
 }
 
 const openedFor = new Set<string>()
+
+async function loadDemo($: EngineInterface) {
+  const demo = buildDemo(await $.clock.now())
+  sources.clear()
+  for (const [k, v] of demo.sources) sources.set(k, v)
+  await update($, review, () => demo.review)
+  await update($, calls, () => demo.calls)
+  await update($, counter, c => Math.max(c, demo.counter))
+  await say($, 'm_demo', 'happy')
+  await openPane($)
+}
 
 async function openPane($: EngineInterface) {
   return $.ui.open({ id: PANE, title: 'Media Review', backgroundColor: C.bg, columns: 72 })
@@ -478,14 +492,7 @@ export const register: Register = (on, options) => {
     const t = strings(await read($, lang))
 
     if (arg === 'demo') {
-      const demo = buildDemo(await $.clock.now())
-      sources.clear()
-      for (const [k, v] of demo.sources) sources.set(k, v)
-      await update($, review, () => demo.review)
-      await update($, calls, () => demo.calls)
-      await update($, counter, c => Math.max(c, demo.counter))
-      await say($, 'm_demo', 'happy')
-      await openPane($)
+      await loadDemo($)
 
       return { text: `Media Review Panel: ${t.sample}` }
     }
@@ -526,7 +533,7 @@ export const register: Register = (on, options) => {
     const E = $.ui.resolve(e)
     const { Box, Text, Button, Link, Code, Progress } = E
     const Svg = e.surface === 'terminal' ? undefined : (E as { Svg?: ElementConstructor<SvgProps> }).Svg
-    const [rv, allCalls, m, col, oc, isMuted, lg] = await Promise.all([
+    const [rv, allCalls, m, col, oc, isMuted, lg, tables, allCallsShown] = await Promise.all([
       read($, review),
       read($, calls),
       read($, mascot),
@@ -534,6 +541,8 @@ export const register: Register = (on, options) => {
       read($, openCalls),
       read($, muted),
       read($, lang),
+      read($, openTables),
+      read($, showAllCalls),
     ])
     const t = strings(lg)
     const chartW = Math.round(Math.min(560, Math.max(240, e.props.bodyColumns * 7.2 - 28)))
@@ -544,6 +553,8 @@ export const register: Register = (on, options) => {
     const stepsDone = steps.filter(s => s.status === 'done').length
     const mood: Mood = m?.mood ?? 'hello'
     const bubble = m ? mascotText(lg, m.key) : mascotText(lg, 'm_hello')
+    // What needs a second look, found by the panel or reported by Claude.
+    const alerts = rv === null ? [] : [...rv.warnings, ...autoWarnings(rv, list, lg)]
     const statusWord = t[`status_${status}` as 'status_idle']
     const title = rv?.title ?? (rv?.isAuto ? t.autoTitle : t.untitled)
     const progress =
@@ -709,9 +720,9 @@ export const register: Register = (on, options) => {
             mono
             size="caption"
             color={isNow ? C.onAccent : wasSeen ? C.text : C.dim}
-            backgroundColor={isNow ? C.accent : wasSeen ? C.border2 : undefined}
+            backgroundColor={isNow ? C.fill : wasSeen ? C.border2 : undefined}
           >
-            {` ${levelName(lg, l)} `}
+            {` ${isNow ? '● ' : wasSeen ? '✓ ' : ''}${levelName(lg, l)} `}
           </Text>
         )
       })
@@ -723,7 +734,8 @@ export const register: Register = (on, options) => {
         current
           ? muteDim(`${t.levelCurrent}: ${levelName(lg, current)} · ${rv?.levelOrigin === 'reported' ? t.levelReported : t.levelFromCall}`)
           : muteDim(t.levelNone),
-      ]
+        seen.length > 0 ? muteDim(t.levelLegend) : null,
+      ].filter((x): x is RenderElement => x !== null)
     }
 
     // 4. Time periods
@@ -791,17 +803,23 @@ export const register: Register = (on, options) => {
       const shown = ds.rows.slice(0, 25)
       const xIdx = Math.max(0, ds.columns.indexOf(ds.x ?? ds.columns[0] ?? ''))
       const missing = new Set(ds.check.missingCells)
-      const cellText = (v: unknown, ci: number): string => {
+      const isCalc = (ci: number) => ds.calculated.includes(ds.columns[ci] ?? '')
+      const head = (h: string, ci: number) => (isCalc(ci) ? `${h}*` : h)
+      // A mark beside the color, so a reader who can't tell the red still sees it.
+      const cellText = (v: unknown, ci: number, ri: number): string => {
         if (v === null || v === undefined) return '—'
         if (ci === xIdx) return String(v)
 
         const n = toNumber(v)
+        const text = n === undefined ? String(v) : fmt(n, lg, seriesUnit(ds.columns[ci] ?? '', ds), ds.currency ?? rv?.currency)
 
-        return n === undefined ? String(v) : fmt(n, lg, seriesUnit(ds.columns[ci] ?? '', ds), ds.currency ?? rv?.currency)
+        return missing.has(`${ri}:${ci}`) ? `${text}!` : text
       }
       const widths = ds.columns.map((h, ci) =>
-        Math.min(ci === xIdx ? 30 : 16, Math.max(h.length, ...shown.map(r => cellText(r[ci], ci).length))),
+        Math.min(ci === xIdx ? 30 : 16, Math.max(head(h, ci).length, ...shown.map((r, ri) => cellText(r[ci], ci, ri).length))),
       )
+      const hasMissing = shown.some((r, ri) => ds.columns.some((_, ci) => missing.has(`${ri}:${ci}`)))
+      const hasCalc = ds.columns.some((_, ci) => isCalc(ci))
       const pad = (s: string, w: number, right: boolean) => {
         const cut = s.length > w ? `${s.slice(0, w - 1)}…` : s
 
@@ -811,19 +829,21 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" overflowX="scroll">
           <Text mono size="caption" color={C.dim}>
-            {ds.columns.map((h, ci) => pad(h, widths[ci] ?? 8, ci !== xIdx)).join('  ')}
+            {ds.columns.map((h, ci) => pad(head(h, ci), widths[ci] ?? 8, ci !== xIdx)).join('  ')}
           </Text>
           {shown.map((row, ri) => (
             <Text mono size="caption" color={C.text}>
               {ds.columns.map((_, ci) => (
-                <Text color={missing.has(`${ri}:${ci}`) ? C.err : ds.calculated.includes(ds.columns[ci] ?? '') ? C.muted : C.text}>
-                  {pad(cellText(row[ci], ci), widths[ci] ?? 8, ci !== xIdx)}
+                <Text color={missing.has(`${ri}:${ci}`) ? C.err : isCalc(ci) ? C.muted : C.text}>
+                  {pad(cellText(row[ci], ci, ri), widths[ci] ?? 8, ci !== xIdx)}
                   {ci < ds.columns.length - 1 ? '  ' : ''}
                 </Text>
               ))}
             </Text>
           ))}
           {ds.totalRows > shown.length ? muteDim(t.showing(shown.length, ds.totalRows)) : null}
+          {hasMissing ? muteDim(t.missingLegend) : null}
+          {hasCalc ? muteDim(t.calcLegend) : null}
         </Box>
       )
     }
@@ -919,6 +939,17 @@ export const register: Register = (on, options) => {
             {checkLine(ds)}
           </Box>
           {ds.chart === 'table' ? tableOf(ds) : chartsOf(ds)}
+          {ds.chart !== 'table' ? (
+            <Button
+              key={`tbl-${ds.id}`}
+              plain
+              dimColor
+              onPress={() => update($, openTables, cur => (cur.includes(ds.id) ? cur.filter(x => x !== ds.id) : [...cur, ds.id]))}
+            >
+              {tables.includes(ds.id) ? `▾ ${t.hideTable}` : `▸ ${t.showTable}`}
+            </Button>
+          ) : null}
+          {ds.chart !== 'table' && tables.includes(ds.id) ? tableOf(ds) : null}
           {ds.note ? muteDim(ds.note) : null}
         </Box>
       ))
@@ -942,7 +973,7 @@ export const register: Register = (on, options) => {
         </Text>,
       )
 
-      const warnings = rv === null ? [] : [...(rv.isDemo ? [t.sample] : []), ...rv.warnings, ...autoWarnings(rv, list, lg)]
+      const warnings = [...(rv?.isDemo ? [t.sample] : []), ...alerts]
 
       if (warnings.length > 0) {
         out.push(
@@ -984,7 +1015,11 @@ export const register: Register = (on, options) => {
 
       if (list.length === 0) out.push(muteDim(t.noCalls))
 
-      for (const c of [...list].reverse().slice(0, 40)) {
+      // The newest first; the rest one press away, so a long review stays readable.
+      const SHOWN = 12
+      const visible = [...list].reverse().slice(0, allCallsShown ? 150 : SHOWN)
+
+      for (const c of visible) {
         const [glyph, color] = CALL_GLYPH[c.status]
         const isOpen = oc.includes(c.n)
         const facts = [
@@ -1004,6 +1039,9 @@ export const register: Register = (on, options) => {
               plain
               onPress={() => update($, openCalls, cur => (cur.includes(c.n) ? cur.filter(x => x !== c.n) : [...cur, c.n].slice(-20)))}
             >
+              <Text color={C.dim} mono size="caption">
+                {isOpen ? '▾ ' : '▸ '}
+              </Text>
               <Text color={color} mono>
                 {glyph}{' '}
               </Text>
@@ -1044,6 +1082,14 @@ export const register: Register = (on, options) => {
             ) : null}
             {isOpen ? <Code language="json" source={c.input} /> : null}
           </Box>,
+        )
+      }
+
+      if (list.length > SHOWN) {
+        out.push(
+          <Button key="all-calls" plain dimColor onPress={() => update($, showAllCalls, v => !v)}>
+            {allCallsShown ? `▴ ${t.showFewer}` : `▾ ${t.showAllCalls(list.length)}`}
+          </Button>,
         )
       }
 
@@ -1113,12 +1159,43 @@ export const register: Register = (on, options) => {
       </Box>
     ) : null
 
+    // The alerts lead: catching a mistake early is the panel's job.
+    const alertStrip =
+      alerts.length > 0 ? (
+        <Box flexDirection="column" borderStyle="single" borderColor={C.warn} paddingX={1}>
+          <Text color={C.warn} weight="semibold" size="caption">
+            ⚠ {t.alerts(alerts.length).toUpperCase()}
+          </Text>
+          {alerts.slice(0, 3).map(a => (
+            <Text size="footnote" color={C.text} maxLines={2}>
+              • {a}
+            </Text>
+          ))}
+          {alerts.length > 3 ? muteDim(t.moreAlerts(alerts.length - 3)) : null}
+        </Box>
+      ) : null
+
+    const empty = (
+      <Box flexDirection="column" borderStyle="single" borderColor={C.border} backgroundColor={C.card} paddingX={1} gap={1}>
+        <Text color={C.bright} weight="semibold">
+          {t.emptyTitle}
+        </Text>
+        <Text size="footnote" color={C.text}>
+          {t.emptyBody}
+        </Text>
+        <Button key="load-demo" variant="primary" onPress={() => loadDemo($)}>
+          {t.loadDemo}
+        </Button>
+      </Box>
+    )
+
     const footer = (
       <Box flexDirection="column" borderStyle="single" borderColor={C.border} paddingX={1}>
         <Text color={C.bright} weight="semibold" size="footnote">
           {t.madeBy}
         </Text>
         <Box flexDirection="row" gap={2}>
+          <Link href={SITE} label="trafegocompedro.com.br" />
           <Link href={LINKEDIN} label="LinkedIn" />
           <Link href={INSTAGRAM} label="Instagram" />
         </Box>
@@ -1128,10 +1205,21 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
+    if (rv === null) {
+      return (
+        <Box flexDirection="column" backgroundColor={C.bg} padding={1} gap={1}>
+          {header}
+          {empty}
+          {footer}
+        </Box>
+      )
+    }
+
     return (
       <Box flexDirection="column" backgroundColor={C.bg} padding={1} gap={1}>
         {header}
         {sample}
+        {alertStrip}
         {section('accounts', t.sec_accounts, String(rv?.accounts.length ?? 0), accountsBody)}
         {section('status', t.sec_status, steps.length ? `${stepsDone}/${steps.length}` : undefined, statusBody)}
         {section('level', t.sec_level, undefined, levelBody)}

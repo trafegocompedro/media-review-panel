@@ -3,6 +3,7 @@ import type { On } from 'claude-code'
 
 import { guessLang } from '../hooks/i18n'
 import { isInSource, numberIndex, readResult } from '../hooks/detect'
+import { robot } from '../hooks/mascot'
 
 const PANE = {
   plugin: 'media-review-panel',
@@ -202,6 +203,46 @@ test('scripts named in the local setting are recognized even with plain output',
 
   expect(ran.context?.join(' ') ?? '').toMatch(/call #1/)
   expect(other.context).toBeUndefined()
+})
+
+test('UX: alerts lead, status is never color alone, charts have a table, long logs fold', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'media-review', args: 'demo', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+
+  // The demo has an empty call, extra pages, a date outside the period and a value not found.
+  expect(await ui.find({ type: 'Text', text: /⚠ \d+ ALERTS/ })).toBeDefined()
+  // Levels carry a mark, not only a color.
+  expect(await ui.find({ type: 'Text', text: /● Keyword/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /✓ Campaign/ })).toBeDefined()
+  // The keyword table marks the value it could not find and the legend says why.
+  expect(await ui.find({ type: 'Text', text: /421\.30!/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /! not found in the cited responses/ })).toBeDefined()
+  // A chart opens as a table.
+  await ui.press({ key: 'tbl-daily' })
+  expect(await ui.find({ type: 'Button', key: 'tbl-daily', text: /Hide table/ })).toBeDefined()
+  // A call row shows it can open.
+  expect(await ui.find({ type: 'Button', text: /▸ ✓ #\d/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('UX: an empty panel offers the next step', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+
+  expect(await ui.find({ type: 'Text', text: /No review yet/ })).toBeDefined()
+  await ui.press({ key: 'load-demo' })
+  expect(await ui.find({ type: 'Text', text: /SAMPLE DATA/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('UX: the mascot stops moving when the system asks for reduced motion', () => {
+  expect(robot('work')).toMatch(/prefers-reduced-motion:reduce/)
+  expect(robot('done')).not.toMatch(/<animate/)
 })
 
 test('helpers: language, row counts and the number check', () => {

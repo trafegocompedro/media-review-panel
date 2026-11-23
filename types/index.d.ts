@@ -124,6 +124,8 @@ declare module 'claude-code' {
       mascot: Shaped<Mascot | null>
       collapsed: string[]
       openCalls: number[]
+      openTables: string[]
+      showAllCalls: boolean
       muted: boolean
       lang: Lang
       counter: number

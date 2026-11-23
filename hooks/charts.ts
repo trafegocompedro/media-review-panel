@@ -9,8 +9,11 @@ export const C = {
   text: '#cccccc',
   bright: '#e7e7e7',
   muted: '#9d9d9d',
-  dim: '#6e7681',
+  // 5.4:1 on the card (the old #6e7681 was 3.6:1, under WCAG AA for small text).
+  dim: '#8b949e',
   accent: '#3794ff',
+  // A fill that carries white text at 6.4:1 (white on the accent is only 3.1:1).
+  fill: '#0e639c',
   onAccent: '#ffffff',
   ok: '#89d185',
   warn: '#cca700',
@@ -108,7 +111,7 @@ export const lineChart = ({ labels, values, name, tip, width }: Series): string 
     const gy = y(v)
     parts.push(`<line x1="${L}" x2="${W - R}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}" stroke="${C.grid}" stroke-width="1"/>`)
     parts.push(
-      `<text x="${L - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end" font-family="${MONO}" font-size="9" fill="${C.dim}">${esc(compact(v))}</text>`,
+      `<text x="${L - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end" font-family="${MONO}" font-size="10" fill="${C.dim}">${esc(compact(v))}</text>`,
     )
   }
 
@@ -117,7 +120,7 @@ export const lineChart = ({ labels, values, name, tip, width }: Series): string 
   for (const i of ticks) {
     const anchor = n <= 1 ? 'middle' : i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'
     parts.push(
-      `<text x="${x(i).toFixed(1)}" y="${H - 6}" text-anchor="${anchor}" font-family="${MONO}" font-size="9" fill="${C.dim}">${esc(shortLabel(labels[i] ?? ''))}</text>`,
+      `<text x="${x(i).toFixed(1)}" y="${H - 6}" text-anchor="${anchor}" font-family="${MONO}" font-size="10" fill="${C.dim}">${esc(shortLabel(labels[i] ?? ''))}</text>`,
     )
   }
 
@@ -135,16 +138,32 @@ export const lineChart = ({ labels, values, name, tip, width }: Series): string 
 
   for (const r of runs) {
     if (r.length > 1) {
-      parts.push(`<polyline points="${r.join(' ')}" fill="none" stroke="${C.accent}" stroke-width="1.6" stroke-linejoin="round"/>`)
+      parts.push(`<polyline points="${r.join(' ')}" fill="none" stroke="${C.accent}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`)
     }
   }
+
+  // Each point gets a hover target wider than the line (its tooltip), and only
+  // the last one a visible marker with its value, so the line stays clean.
+  const hit = Math.max(4, Math.min(10, (W - L - R) / Math.max(1, n) / 2))
 
   values.forEach((v, i) => {
     if (v === null) return
     parts.push(
-      `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${n > 40 ? 1.6 : 2.4}" fill="${C.card}" stroke="${C.accent}" stroke-width="1.4"><title>${esc(`${labels[i] ?? ''} · ${name}: ${tip(v)}`)}</title></circle>`,
+      `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${hit.toFixed(1)}" fill="transparent"><title>${esc(`${labels[i] ?? ''} · ${name}: ${tip(v)}`)}</title></circle>`,
     )
   })
+
+  const lastIdx = values.map(v => v !== null).lastIndexOf(true)
+  const last = lastIdx >= 0 ? values[lastIdx] : null
+
+  if (last !== null && last !== undefined) {
+    const lx = x(lastIdx)
+    const ly = y(last)
+    parts.push(`<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="4" fill="${C.accent}" stroke="${C.card}" stroke-width="2" pointer-events="none"/>`)
+    parts.push(
+      `<text x="${(lx - 7).toFixed(1)}" y="${(ly - 8).toFixed(1)}" text-anchor="end" font-family="${MONO}" font-size="10" fill="${C.text}" pointer-events="none">${esc(compact(last))}</text>`,
+    )
+  }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${SANS}"><rect width="${W}" height="${H}" fill="${C.card}"/>${parts.join('')}</svg>`
 }
@@ -176,8 +195,14 @@ export const barChart = ({ labels, values, name, tip, width }: Series): string =
     }
 
     const w = Math.max(1, (Math.max(0, v) / max) * barMax)
+    // Square at the baseline, rounded at the data end; the whole row is the hover target.
+    const h = rowH - 8
+    const r = Math.min(3, w / 2, h / 2)
+    const y0 = top + 4
     parts.push(
-      `<rect x="${labelW}" y="${top + 4}" width="${w.toFixed(1)}" height="${rowH - 9}" rx="1.5" fill="${C.accent}"><title>${esc(`${label} · ${name}: ${tip(v)}`)}</title></rect>`,
+      `<g><title>${esc(`${label} · ${name}: ${tip(v)}`)}</title>` +
+        `<rect x="0" y="${top}" width="${W}" height="${rowH}" fill="transparent"/>` +
+        `<path d="M${labelW} ${y0}h${(w - r).toFixed(1)}a${r} ${r} 0 0 1 ${r} ${r}v${(h - 2 * r).toFixed(1)}a${r} ${r} 0 0 1 -${r} ${r}h-${(w - r).toFixed(1)}z" fill="${C.accent}"/></g>`,
     )
     parts.push(
       `<text x="${(labelW + w + 6).toFixed(1)}" y="${top + 13}" font-family="${MONO}" font-size="10" fill="${C.muted}">${esc(compact(v))}</text>`,
