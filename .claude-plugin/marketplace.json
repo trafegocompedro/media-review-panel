@@ -1,0 +1,14 @@
+{
+  "name": "media-review-panel",
+  "owner": {
+    "name": "Tráfego Com Pedro"
+  },
+  "description": "Paid media transparency panel for Claude Code, by Tráfego Com Pedro.",
+  "plugins": [
+    {
+      "name": "media-review-panel",
+      "source": "./",
+      "description": "Side panel that shows exactly what Claude reads while it analyzes paid media. Read-only. Made by Tráfego Com Pedro."
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "name": "media-review-panel",
+  "version": "0.1.0",
+  "description": "Side panel that shows exactly what Claude reads while it analyzes paid media (Google, Meta, TikTok, LinkedIn Ads): accounts, steps, data level, dates, charts and a full debug log. Read-only. Made by Tráfego Com Pedro.",
+  "author": {
+    "name": "Tráfego Com Pedro",
+    "url": "https://www.linkedin.com/in/soupedrosimoes/"
+  },
+  "homepage": "https://www.instagram.com/trafegocompedro/",
+  "keywords": [
+    "paid media",
+    "google ads",
+    "meta ads",
+    "tiktok ads",
+    "linkedin ads",
+    "dashboard",
+    "debug"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Panel language",
+      "description": "auto follows the language of your messages; en = English; pt = Brazilian Portuguese",
+      "default": "auto",
+      "options": [
+        "auto",
+        "en",
+        "pt"
+      ]
+    },
+    "mascot": {
+      "type": "string",
+      "title": "Mascot",
+      "description": "on shows Bip, the robot, with short status messages; off hides it (you can also mute it in the panel)",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
+    },
+    "autoOpen": {
+      "type": "string",
+      "title": "Open the panel automatically",
+      "description": "on opens the panel when Claude first reads paid media data in a review; off waits for /media-review",
+      "default": "on",
+      "options": [
+        "on",
+        "off"
+      ]
+    }
+  },
+  "license": "MIT"
+}

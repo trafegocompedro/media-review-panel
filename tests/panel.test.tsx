@@ -1,0 +1,166 @@
+import { expect, mock, test } from 'claude-code/testing'
+import type { On } from 'claude-code'
+
+import { guessLang } from '../hooks/i18n'
+import { isInSource, numberIndex, readResult } from '../hooks/detect'
+
+const PANE = {
+  plugin: 'media-review-panel',
+  component: 'Pane',
+  requestId: 'media-review',
+  props: {
+    title: 'Media Review',
+    isFocused: false,
+    bodyColumns: 64,
+    placement: 'dock',
+    scroll: { offset: 0, bodyRows: 200 },
+    view: {},
+  },
+} as const
+
+const SURFACES = ['desktop', 'terminal'] as const
+
+// Hooks that stand for the engine beneath the mod.
+const engine = (on: On, toolText: (tool: string) => string = () => '{"data":[]}') => {
+  mock.clock(on, { now: Date.parse('2026-11-23T12:00:00Z') })
+  mock.store(on)
+  on('command.register', () => ({ value: { command: 'media-review' } }))
+  on('tool.register', () => ({ value: { tool: 'mcp__media-review-panel__report' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('tool.call', (_, e) => ({ result: toolText(String(e.tool)), text: toolText(String(e.tool)) }))
+}
+
+const META_ROWS = JSON.stringify({
+  data: [
+    { campaign_name: 'Brand', spend: '1234.56', conversions: '40' },
+    { campaign_name: 'Prospecting', spend: '980.10', conversions: '22' },
+  ],
+})
+
+test('the demo shows sample data, the credit and both links, on every surface', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'media-review', args: 'demo' })
+
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+
+    expect(await ui.find({ type: 'Text', text: /SAMPLE DATA/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Made by Tráfego Com Pedro/ })).toBeDefined()
+    expect(await ui.find({ type: 'Link', text: /LinkedIn/ })).toBeDefined()
+    expect(await ui.find({ type: 'Link', text: /Instagram/ })).toBeDefined()
+    // The demo's keyword table reports one value that is not in its source.
+    expect(await ui.find({ type: 'Text', text: /1 not found/ })).toBeDefined()
+    // The empty call and the extra pages are flagged.
+    expect(await ui.find({ type: 'Text', text: /returned no rows/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /more pages/ })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
+test('a Meta read is logged with its account, level, dates and rows', async ($, on) => {
+  engine(on, () => META_ROWS)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const ran = await $.tool.call({
+    tool: 'mcp__meta__ads_get_ad_entities',
+    ad_account_id: 'act_123456789',
+    level: 'campaign',
+    time_range: { since: '2026-10-01', until: '2026-10-31' },
+    fields: ['spend', 'conversions'],
+  })
+
+  expect(ran.context?.join(' ') ?? '').toMatch(/call #1/)
+
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+
+    expect(await ui.find({ type: 'Text', text: /act_123456789/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Reading now: Campaign/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /2026-10-01 → 2026-10-31/ })).toBeDefined()
+    expect(await ui.find({ type: 'Button', text: /ads_get_ad_entities/ })).toBeDefined()
+    expect(await ui.find({ type: 'Button', text: /2 rows/ })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
+test('a report fills the panel and checks numbers against the raw response', async ($, on) => {
+  engine(on, () => META_ROWS)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.tool.call({ tool: 'mcp__meta__ads_get_ad_entities', ad_account_id: 'act_123456789', level: 'campaign' })
+
+  const report = await $.tool.call({
+    tool: 'mcp__media-review-panel__report',
+    action: 'start',
+    language: 'pt-BR',
+    title: 'Revisão de outubro',
+    accounts: [{ platform: 'Meta Ads', id: 'act_123456789', name: 'Loja Teste' }],
+    periods: [{ start: '2026-10-01', end: '2026-10-31' }],
+    steps: [{ id: 'campaigns', label: 'Campanhas', status: 'analyzing' }],
+    datasets: [
+      {
+        id: 'spend',
+        title: 'Investimento por campanha',
+        chart: 'bar',
+        columns: ['campaign', 'spend', 'cpa'],
+        x: 'campaign',
+        rows: [
+          ['Brand', 1234.56, 30.86],
+          ['Prospecting', 999.99, 44.55],
+        ],
+        source_calls: [1],
+        calculated_columns: ['cpa'],
+      },
+    ],
+  })
+
+  expect(String(report.result)).toMatch(/1 found, 1 not found, 2 calculated/)
+
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+
+    // The language follows the report, and the account keeps its name.
+    expect(await ui.find({ type: 'Text', text: /REVISÃO DE MÍDIA/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Loja Teste/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /1 não encontrados/ })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
+test('a write call is flagged in red, and the mascot can be muted', async ($, on) => {
+  engine(on, () => '{"success":true}')
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.tool.call({ tool: 'mcp__meta__ads_update_entity', entity_id: '1', status: 'PAUSED' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+
+  expect(await ui.find({ type: 'Text', text: /WRITE CALL/ })).toBeDefined()
+  expect(await ui.find({ type: 'Svg' })).toBeDefined()
+  await ui.press({ key: 'mute' })
+  expect(await ui.find({ type: 'Button', key: 'unmute' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('other tools are left alone', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const ran = await $.tool.call({ tool: 'Bash', command: 'ls -la' })
+
+  expect(ran.context).toBeUndefined()
+})
+
+test('helpers: language, row counts and the number check', () => {
+  expect(guessLang('Faz uma análise da conta da loja, por favor')).toBe('pt')
+  expect(guessLang('Please review the campaigns in this account')).toBe('en')
+  expect(readResult(META_ROWS).rows).toBe(2)
+  expect(readResult('{"data":[],"paging":{"next":"https://x"}}').flags).toContain('paging')
+  expect(readResult('{"results":[]}').rows).toBe(0)
+
+  const index = numberIndex('{"cost_micros":"1234560000","ctr":0.0345,"spend":"98.7"}')
+  expect(isInSource(index, 1234.56)).toBe(true)
+  expect(isInSource(index, 3.45)).toBe(true)
+  expect(isInSource(index, 98.7)).toBe(true)
+  expect(isInSource(index, 55.5)).toBe(false)
+})
