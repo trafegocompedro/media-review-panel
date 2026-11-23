@@ -91,9 +91,11 @@ const EN = {
   m_write: 'Heads up: that call can change an account!',
   m_check: 'A few numbers need a second look.',
   m_done: 'Done with the ad review!',
-  m_paused: 'Paused. Ready when you are!',
+  m_paused: 'Coffee break. Ready when you are!',
   m_demo: 'Sample data loaded. Take a look around!',
   m_clear: 'Fresh start!',
+  m_note: 'Writing down what Claude found.',
+  m_sleep: 'Zzz… Wake me when there is an account to review.',
   alerts: (n: number) => (n === 1 ? '1 alert' : `${n} alerts`),
   moreAlerts: (n: number) => `+${n} more in Debug & validation`,
   showAllCalls: (n: number) => `Show all ${n} calls`,
@@ -201,9 +203,11 @@ const PT: Strings = {
   m_write: 'Atenção: essa chamada pode alterar uma conta!',
   m_check: 'Alguns números merecem uma segunda olhada.',
   m_done: 'Revisão dos anúncios concluída!',
-  m_paused: 'Pausado. Quando quiser, seguimos!',
+  m_paused: 'Pausa para o cafezinho. Quando quiser, seguimos!',
   m_demo: 'Dados de exemplo carregados. Dá uma olhada!',
   m_clear: 'Tudo limpo, começando de novo!',
+  m_note: 'Anotando o que o Claude achou.',
+  m_sleep: 'Zzz… Me chama quando tiver conta para revisar.',
   alerts: n => (n === 1 ? '1 alerta' : `${n} alertas`),
   moreAlerts: n => `+${n} em Depuração e validação`,
   showAllCalls: n => `Mostrar as ${n} chamadas`,
@@ -234,6 +238,8 @@ export type MascotKey =
   | 'm_paused'
   | 'm_demo'
   | 'm_clear'
+  | 'm_note'
+  | 'm_sleep'
 
 export const mascotText = (lang: Lang, key: string): string => {
   const s = strings(lang) as unknown as Record<string, unknown>

@@ -21,7 +21,7 @@ The panel is **read-only**. It never changes anything in an ad account. It makes
 5. **Data visuals:** line charts, bar charts and compact tables, built only from values retrieved in the session. A missing point stays blank. It's never filled in.
 6. **Debug and validation:** every tool call with its inputs, fields, row count, time and errors. Also: empty responses, extra pages that weren't read, truncated output, calls that can change an account (flagged in red), and dates queried outside the reported period. Each chart is checked against the raw responses it came from.
 
-Bip, the robot in the corner, posts short status messages in English or Brazilian Portuguese, matching your messages. Mute it with the **Mute** button or `/media-review mute`.
+Bip, the pixel-art robot in the corner, wears the greens of Tráfego Com Pedro and acts out each moment of the review: a magnifier while it analyzes, a notepad when Claude writes down findings, a siren when a call can change an account, a moth flying out of an empty box, a coffee break when the review is paused, and a nap when the panel sits idle for 10 minutes. It also posts short status messages in English or Brazilian Portuguese, matching your messages. Mute it with the **Mute** button or `/media-review mute`.
 
 ### How it works
 
@@ -107,7 +107,7 @@ O painel é **somente leitura**. Ele nunca muda nada em uma conta de anúncios. 
 5. **Gráficos e tabelas:** gráficos de linha, de barras e tabelas curtas, feitos só com valores obtidos na sessão. Um dia sem dado fica em branco. O painel nunca preenche o que falta.
 6. **Depuração e validação:** cada chamada de ferramenta, com entradas, campos, número de linhas, tempo e erros. Também mostra respostas vazias, páginas extras que não foram lidas, saídas cortadas, chamadas que podem alterar uma conta (em vermelho) e datas consultadas fora do período informado. Cada gráfico é conferido com as respostas brutas de onde vieram os números.
 
-O Bip, o robô no canto, escreve mensagens curtas sobre o andamento, em português ou em inglês, conforme o idioma das suas mensagens. Para silenciar, use o botão **Silenciar** ou `/media-review mute`.
+O Bip, o robô em pixel art no canto, usa os verdes da Tráfego Com Pedro e encena cada momento da revisão: lupa enquanto analisa, bloquinho quando o Claude anota o que achou, sirene quando uma chamada pode alterar a conta, mariposa saindo da caixa vazia, cafezinho quando a revisão está pausada e soneca quando o painel fica parado por 10 minutos. Ele também escreve mensagens curtas sobre o andamento, em português ou em inglês, conforme o idioma das suas mensagens. Para silenciar, use o botão **Silenciar** ou `/media-review mute`.
 
 ### Como funciona
 

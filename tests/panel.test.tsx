@@ -3,7 +3,8 @@ import type { On } from 'claude-code'
 
 import { guessLang } from '../hooks/i18n'
 import { isInSource, numberIndex, readResult } from '../hooks/detect'
-import { robot } from '../hooks/mascot'
+import { MOODS, robot, robotText } from '../hooks/mascot'
+import type { Mood } from '../types'
 
 const PANE = {
   plugin: 'media-review-panel',
@@ -241,8 +242,26 @@ test('UX: an empty panel offers the next step', async ($, on) => {
 })
 
 test('UX: the mascot stops moving when the system asks for reduced motion', () => {
-  expect(robot('work')).toMatch(/prefers-reduced-motion:reduce/)
+  expect(robot('look')).toMatch(/prefers-reduced-motion:reduce/)
   expect(robot('done')).not.toMatch(/<animate/)
+})
+
+test('Bip: each of the 14 moods is its own pixel-art pose', () => {
+  expect(MOODS.length).toBe(14)
+  const drawings = new Set<string>()
+  for (const m of MOODS) {
+    const svg = robot(m)
+    expect(svg).toMatch(/shape-rendering="crispEdges"/)
+    expect(svg).toMatch(new RegExp(`class="bip st-${m}"`))
+    expect(robotText(m)).not.toBe('')
+    drawings.add(svg)
+  }
+  expect(drawings.size).toBe(14)
+})
+
+test('Bip: a mood saved by an older version falls back to the wave', () => {
+  expect(robot('work' as Mood)).toMatch(/st-hello/)
+  expect(robotText('happy' as Mood)).toBe(robotText('hello'))
 })
 
 test('helpers: language, row counts and the number check', () => {

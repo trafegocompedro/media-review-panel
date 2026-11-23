@@ -136,6 +136,9 @@ const REPORT_SCHEMA = {
   required: ['action'],
 }
 
+// How long a quiet panel waits before Bip falls asleep.
+const SLEEP_AFTER_MS = 10 * 60 * 1000
+
 async function say($: EngineInterface, key: MascotKey, mood: Mood) {
   const at = await $.clock.now()
   await update($, mascot, () => ({ key, mood, at }))
@@ -204,7 +207,7 @@ async function loadDemo($: EngineInterface) {
   await update($, review, () => demo.review)
   await update($, calls, () => demo.calls)
   await update($, counter, c => Math.max(c, demo.counter))
-  await say($, 'm_demo', 'happy')
+  await say($, 'm_demo', 'demo')
   await openPane($)
 }
 
@@ -230,7 +233,7 @@ async function answerReport($: EngineInterface, input: Record<string, unknown>, 
 
   if (action === 'clear') {
     await update($, review, () => null)
-    await say($, 'm_clear', 'happy')
+    await say($, 'm_clear', 'clean')
 
     return { result: 'Media Review Panel cleared.' }
   }
@@ -265,10 +268,11 @@ async function answerReport($: EngineInterface, input: Record<string, unknown>, 
     await maybeOpen($, r, autoOpen)
   } else if (r?.status === 'done') await say($, 'm_done', 'done')
   else if (moves.includes('error') || r?.status === 'error') await say($, 'm_error', 'oops')
-  else if (r?.datasets.some(d => d.check.missing > 0) && notes.some(x => x.includes('Not found'))) await say($, 'm_check', 'oops')
-  else if (moves.includes('done')) await say($, 'm_step', 'happy')
-  else if (moves.includes('analyzing')) await say($, 'm_analyze', 'work')
-  else if (moves.includes('fetching')) await say($, 'm_fetch', 'work')
+  else if (r?.datasets.some(d => d.check.missing > 0) && notes.some(x => x.includes('Not found'))) await say($, 'm_check', 'sus')
+  else if (Array.isArray(input.datasets) && input.datasets.length > 0) await say($, 'm_note', 'write')
+  else if (moves.includes('done')) await say($, 'm_step', 'step')
+  else if (moves.includes('analyzing')) await say($, 'm_analyze', 'look')
+  else if (moves.includes('fetching')) await say($, 'm_fetch', 'fetch')
 
   const done = r?.steps.filter(s => s.status === 'done').length ?? 0
   const head = `Media Review Panel updated: ${r?.status ?? 'idle'}, ${done}/${r?.steps.length ?? 0} steps done, ${r?.datasets.length ?? 0} datasets.`
@@ -457,10 +461,10 @@ export const register: Register = (on, options) => {
 
     const m = await read($, mascot)
 
-    if (det.kind === 'write') await say($, 'm_write', 'oops')
+    if (det.kind === 'write') await say($, 'm_write', 'alert')
     else if (done.status === 'error' || done.status === 'denied') await say($, 'm_error', 'oops')
-    else if (done.status === 'empty') await say($, 'm_empty', 'oops')
-    else if (!isNew && (m === null || m.key === 'm_start' || m.key === 'm_paused' || m.key === 'm_hello')) await say($, 'm_fetch', 'work')
+    else if (done.status === 'empty') await say($, 'm_empty', 'empty')
+    else if (!isNew && (m === null || m.key === 'm_start' || m.key === 'm_paused' || m.key === 'm_hello')) await say($, 'm_fetch', 'fetch')
 
     if (ran.deny !== undefined || ran.isError) return ran
 
@@ -481,7 +485,7 @@ export const register: Register = (on, options) => {
 
     if (r !== null && r.status === 'running' && !r.isDemo) {
       await update($, review, cur => (cur === null ? cur : { ...cur, status: 'paused' as const }))
-      await say($, 'm_paused', 'hello')
+      await say($, 'm_paused', 'pause')
     }
 
     return next(e)
@@ -500,7 +504,7 @@ export const register: Register = (on, options) => {
     if (arg === 'clear') {
       await update($, review, () => null)
       await update($, calls, () => [])
-      await say($, 'm_clear', 'happy')
+      await say($, 'm_clear', 'clean')
 
       return { text: 'Media Review Panel cleared.' }
     }
@@ -551,8 +555,10 @@ export const register: Register = (on, options) => {
     const statusColor = STATUS_COLOR[status]
     const steps = rv?.steps ?? []
     const stepsDone = steps.filter(s => s.status === 'done').length
-    const mood: Mood = m?.mood ?? 'hello'
-    const bubble = m ? mascotText(lg, m.key) : mascotText(lg, 'm_hello')
+    // Left alone with nothing running for a while, Bip falls asleep.
+    const isAsleep = m !== null && rv?.status !== 'running' && (await $.clock.now()) - m.at > SLEEP_AFTER_MS
+    const mood: Mood = isAsleep ? 'sleep' : (m?.mood ?? 'hello')
+    const bubble = mascotText(lg, isAsleep ? 'm_sleep' : (m?.key ?? 'm_hello'))
     // What needs a second look, found by the panel or reported by Claude.
     const alerts = rv === null ? [] : [...rv.warnings, ...autoWarnings(rv, list, lg)]
     const statusWord = t[`status_${status}` as 'status_idle']
@@ -578,7 +584,7 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" backgroundColor={C.bg} padding={1} gap={1}>
           <Box flexDirection="row" gap={1} alignItems="center">
-            {!isMuted && mascotArt(36)}
+            {!isMuted && mascotArt(28)}
             <Box flexDirection="column" flexShrink={1}>
               <Text color={C.bright} weight="semibold" wrap="truncate-end">
                 {title}
@@ -1113,7 +1119,7 @@ export const register: Register = (on, options) => {
               {rv ? <Text color={C.dim}>{`  ${t.started} ${clock(rv.startedAt)} · ${t.updated} ${clock(rv.updatedAt)}`}</Text> : ''}
             </Text>
           </Box>
-          {!isMuted ? mascotArt(52) : null}
+          {!isMuted ? mascotArt(56) : null}
         </Box>
         {!isMuted ? (
           <Box flexDirection="row" justifyContent="space-between" alignItems="center" borderStyle="round" borderColor={C.border2} paddingX={1} gap={1}>

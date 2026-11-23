@@ -112,7 +112,21 @@ export type CallLog = {
   input: string
 }
 
-export type Mood = 'hello' | 'work' | 'happy' | 'oops' | 'done'
+export type Mood =
+  | 'sleep'
+  | 'hello'
+  | 'fetch'
+  | 'look'
+  | 'write'
+  | 'done'
+  | 'oops'
+  | 'alert'
+  | 'sus'
+  | 'empty'
+  | 'step'
+  | 'pause'
+  | 'clean'
+  | 'demo'
 
 export type Mascot = { key: string; detail?: string; mood: Mood; at: number }
 
