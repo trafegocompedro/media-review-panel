@@ -1,6 +1,6 @@
 {
   "name": "media-review-panel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Side panel that shows exactly what Claude reads while it analyzes paid media (Google, Meta, TikTok, LinkedIn Ads): accounts, steps, data level, dates, charts and a full debug log. Read-only. Made by Tráfego Com Pedro.",
   "author": {
     "name": "Tráfego Com Pedro",
@@ -48,6 +48,12 @@
         "on",
         "off"
       ]
+    },
+    "extraScripts": {
+      "type": "string",
+      "title": "Your own data scripts",
+      "description": "Names of scripts on this computer that read ad data, separated by commas (for example: my_report.py, fetch_ads.py). Saved only in your local settings, never in the mod's files. Scripts that print raw Google Ads or Meta data are recognized without this.",
+      "default": ""
     }
   },
   "license": "MIT"

@@ -12,12 +12,38 @@ const META_TOOL = /^ads_/
 const WRITE =
   /(^|_)(create|update|delete|duplicate|activate|pause|boost|upload|finalize|connect|disconnect|mutate|remove|add|set|apply|enable|disable|archive|send|launch|publish|edit|change|replace)(_|$)/i
 const LOOKUP = /(help|guidance|field_context|schema|docs?|list_tools|search_tools|get_tool_schema|benchmark|library_search)/i
-const BASH_MEDIA =
-  /(\bgaql\b|\bgads\b|google[-_]?ads|googleads|searchStream|search_stream|cost_micros|segments\.date|metrics\.[a-z_]+|graph\.facebook\.com|act_\d{6,}\/insights|business-api\.tiktok|adAnalytics|api\.linkedin\.com\/rest\/ad)/i
+// A command that calls an ad platform's API, or runs a script named for one.
+const API_HOST = /(graph\.facebook\.com|googleads\.googleapis\.com|business-api\.tiktok\.com|api\.linkedin\.com\/rest\/ad|adAnalytics)/i
+const MEDIA_SCRIPT =
+  /[\w./-]*(gaql|gads|google[-_]?ads|googleads|meta[-_]?ads|facebook[-_]?ads|fb[-_]?ads|tiktok[-_]?ads|linkedin[-_]?ads)[\w-]*\.(py|js|mjs|ts|sh|rb)\b/i
 const DATA_FILE = /\.(json|jsonl|csv|tsv)$/i
+// Something that runs code. A command with none of these only shows or edits
+// files: a GAQL string in a script's source is not a query that ran.
+const RUNNER =
+  /^\s*(sudo\s+)?(\w+=\S*\s+)*(python3?|node|npx|bun|deno|bash|sh|zsh|ruby|curl|wget|http|uv\s+run|poetry\s+run|pipenv\s+run|\.{0,2}\/[\w./-]+)(\s|$)/
 
-const platformOf = (s: string): string => {
-  if (/google|gaql|gads|searchstream|cost_micros|segments\./i.test(s)) return 'Google Ads'
+/** True when no part of the command runs code (cd, cat, grep, sed, git...). */
+const isViewOnly = (command: string): boolean => !command.split(/&&|\|\||;|\||\n/).some(seg => RUNNER.test(seg))
+// What a Google Ads or Meta Ads answer looks like, whatever script printed it.
+const ADS_OUTPUT =
+  /(cost_micros|costMicros|\bmetrics\.(impressions|clicks|cost|conversions|ctr)\b|"?\bcampaign\.(name|id|status)\b|\bad_group\.(name|id)\b|\bsegments\.date\b|customers\/\d{10}\b|\bact_\d{6,}\b|"(adset|campaign|ad)_name"\s*:)/i
+
+/** Script names from the local setting: "a.py, b.py" → ["a.py", "b.py"]. */
+export const parseScripts = (raw: unknown): string[] =>
+  typeof raw === 'string'
+    ? raw
+        .split(/[,\n]/)
+        .map(s => s.trim())
+        .filter(s => s !== '')
+    : []
+
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+const runsScript = (command: string, scripts: string[]): string | undefined =>
+  scripts.find(name => new RegExp(`(^|[\\s/'"=])${escape(name)}($|[\\s'";|&)])`).test(command))
+
+export const platformOf = (s: string): string => {
+  if (/google|gaql|gads|searchstream|cost_?micros|segments\.|customers\/\d{10}/i.test(s)) return 'Google Ads'
   if (/meta|facebook|instagram|graph\.facebook|act_\d/i.test(s)) return 'Meta Ads'
   if (/tiktok/i.test(s)) return 'TikTok Ads'
   if (/linkedin/i.test(s)) return 'LinkedIn Ads'
@@ -32,6 +58,7 @@ export const classify = (
   tool: string,
   input: Record<string, unknown>,
   isReviewActive: boolean,
+  scripts: string[] = [],
 ): Detected | undefined => {
   if (tool === OWN_TOOL) return undefined
 
@@ -54,13 +81,11 @@ export const classify = (
 
   if (tool === 'Bash') {
     const command = typeof input.command === 'string' ? input.command : ''
+    const own = runsScript(command, scripts)
 
-    if (!BASH_MEDIA.test(command)) return undefined
+    if (own === undefined && (isViewOnly(command) || !(API_HOST.test(command) || MEDIA_SCRIPT.test(command)))) return undefined
 
-    const kind: CallKind = /mutate|:mutate\b/i.test(command) ? 'write' : 'read'
-    const script = /([\w./-]+\.(?:py|js|ts|sh|rb))/.exec(command)?.[1]
-
-    return { platform: platformOf(command), kind, label: script ? `Bash: ${script}` : 'Bash: query' }
+    return bashDetected(command, own)
   }
 
   if (tool === 'Read' && isReviewActive) {
@@ -72,6 +97,25 @@ export const classify = (
   }
 
   return undefined
+}
+
+const bashDetected = (command: string, script?: string): Detected => {
+  const kind: CallKind = /mutate|:mutate\b/i.test(command) ? 'write' : 'read'
+  const name = script ?? /([\w./-]+\.(?:py|js|ts|sh|rb))/.exec(command)?.[1]
+
+  return { platform: platformOf(command), kind, label: name ? `Bash: ${name.split('/').pop()}` : 'Bash: query' }
+}
+
+/**
+ * For a terminal command the input did not give away: whether what it printed
+ * is ad platform data. Read after the command ran, so any script counts.
+ */
+export const classifyOutput = (command: string, text: string): Detected | undefined => {
+  if (isViewOnly(command) || !ADS_OUTPUT.test(text.slice(0, 200_000))) return undefined
+
+  const found = bashDetected(command)
+
+  return { ...found, platform: found.platform === 'Ads' ? platformOf(text.slice(0, 20_000)) : found.platform }
 }
 
 export type Extracted = {
@@ -97,7 +141,7 @@ const short = (v: unknown, max = 90): string => {
 
 const uniq = (xs: string[]): string[] => [...new Set(xs.filter(x => x !== ''))]
 
-const accountsIn = (text: string): string[] => [
+export const accountsIn = (text: string): string[] => [
   ...(text.match(/\bact_\d{6,}\b/g) ?? []),
   ...(text.match(/\b\d{3}-\d{3}-\d{4}\b/g) ?? []),
   ...[...text.matchAll(/customer[_-]?id["'=: ]+["']?(\d{10})\b/gi)].map(m => m[1] ?? ''),

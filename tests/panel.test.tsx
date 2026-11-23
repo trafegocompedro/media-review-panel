@@ -41,7 +41,7 @@ const META_ROWS = JSON.stringify({
 test('the demo shows sample data, the credit and both links, on every surface', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.command.run({ command: 'media-review', args: 'demo' })
+  await $.command.run({ command: 'media-review', args: 'demo', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
 
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -149,6 +149,59 @@ test('other tools are left alone', async ($, on) => {
   const ran = await $.tool.call({ tool: 'Bash', command: 'ls -la' })
 
   expect(ran.context).toBeUndefined()
+})
+
+const GOOGLE_PRINT = JSON.stringify([
+  { campaign: { resourceName: 'customers/1234567890/campaigns/1', name: 'Brand' }, metrics: { costMicros: '1230000', clicks: '45' } },
+])
+
+test('a script is recognized by what it printed, with its account', async ($, on) => {
+  engine(on, () => GOOGLE_PRINT)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const ran = await $.tool.call({ tool: 'Bash', command: 'python3 relatorio.py --mes 10' })
+
+  expect(ran.context?.join(' ') ?? '').toMatch(/call #1/)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+
+  expect(await ui.find({ type: 'Button', text: /Bash: relatorio\.py/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /1234567890/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Google Ads/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('showing or editing a script is not a data read', async ($, on) => {
+  engine(on, () => "SELECT campaign.name, metrics.cost_micros FROM campaign")
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const shown = await $.tool.call({ tool: 'Bash', command: 'cat relatorio.py' })
+  const searched = await $.tool.call({ tool: 'Bash', command: 'cd pasta && grep -n "segments.date" gaql.py' })
+  const edited = await $.tool.call({ tool: 'Bash', command: "sed -i '' 's/cost_micros/cost/' gaql.py" })
+
+  expect(shown.context).toBeUndefined()
+  expect(searched.context).toBeUndefined()
+  expect(edited.context).toBeUndefined()
+})
+
+test('running a script named for a platform counts even with plain output', async ($, on) => {
+  engine(on, () => 'saved 12 rows to data/campaigns.json')
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const ran = await $.tool.call({ tool: 'Bash', command: 'cd pasta && python3 scripts/gaql.py campaigns' })
+
+  expect(ran.context?.join(' ') ?? '').toMatch(/call #1/)
+})
+
+test('scripts named in the local setting are recognized even with plain output', { options: { extraScripts: 'minha_coleta.py, outra.py' } }, async ($, on) => {
+  engine(on, () => 'Investido ontem: 123,45')
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const ran = await $.tool.call({ tool: 'Bash', command: 'cd pasta && python3 scripts/minha_coleta.py' })
+  const other = await $.tool.call({ tool: 'Bash', command: 'python3 nao_listado.py' })
+
+  expect(ran.context?.join(' ') ?? '').toMatch(/call #1/)
+  expect(other.context).toBeUndefined()
 })
 
 test('helpers: language, row counts and the number check', () => {

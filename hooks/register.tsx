@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
-import type { ElementConstructor, EngineInterface, Register, RenderElement, SvgProps } from 'claude-code'
+import type { ElementConstructor, EngineInterface, Register, RenderElement, SvgProps, ToolCallResult } from 'claude-code'
 
 import type { CallLog, CallStatus, Dataset, Lang, Mood, Review, StepStatus } from '../types'
 import { C, barChart, fmt, lineChart, sparkline, textBar } from './charts'
 import { buildDemo } from './demo'
-import { OWN_TOOL, classify, extract, readResult, toNumber } from './detect'
+import { OWN_TOOL, accountsIn, classify, classifyOutput, extract, parseScripts, platformOf, readResult, toNumber } from './detect'
 import { LEVELS, guessLang, levelName, mascotText, strings } from './i18n'
 import type { MascotKey } from './i18n'
 import { robot, robotText } from './mascot'
@@ -39,6 +39,9 @@ const keepSource = (n: number, text: string) => {
 const sourceText = (n: number) => sources.get(n)
 
 const nudged = new Set<string>()
+
+const textOf = (r: ToolCallResult): string =>
+  typeof r.text === 'string' ? r.text : typeof r.result === 'string' ? r.result : ''
 
 const REPORT_DESCRIPTION = [
   'Keeps the Media Review Panel current: a side panel the user watches to see exactly what you read while you analyze paid media (Google, Meta, TikTok, LinkedIn Ads). It changes nothing in any ad account.',
@@ -263,6 +266,8 @@ async function answerReport($: EngineInterface, input: Record<string, unknown>, 
 export const register: Register = (on, options) => {
   const autoOpen = options.autoOpen !== 'off'
   const langOption = options.language === 'en' || options.language === 'pt' ? options.language : 'auto'
+  // Your own data scripts, from your local settings only (never in the mod's files).
+  const scripts = parseScripts(options.extraScripts)
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -300,11 +305,17 @@ export const register: Register = (on, options) => {
 
     const current = await read($, review)
     const isActive = current !== null && !current.isDemo && (current.status === 'running' || current.status === 'paused')
-    const det = classify(tool, input, isActive)
+    const before = classify(tool, input, isActive, scripts)
 
-    if (det === undefined) return next(e)
+    if (before === undefined && tool !== 'Bash') return next(e)
 
+    // A terminal command the input did not give away is judged by what it printed.
     const startedAt = await $.clock.now()
+    const early = before === undefined ? await next(e) : undefined
+    const det = before ?? (early ? classifyOutput(String(input.command ?? ''), textOf(early)) : undefined)
+
+    if (det === undefined) return early ?? next(e)
+
     const n = await update($, counter, c => c + 1)
     const x = extract(tool, input)
     const hadReview = current?.id
@@ -361,7 +372,7 @@ export const register: Register = (on, options) => {
       await maybeOpen($, r, autoOpen)
     }
 
-    const ran = await next(e)
+    const ran = early ?? (await next(e))
     const ms = (await $.clock.now()) - startedAt
     const done: Partial<CallLog> = { ms }
 
@@ -387,9 +398,30 @@ export const register: Register = (on, options) => {
         done.status = 'error'
         done.error = text.slice(0, 400)
       } else done.status = facts.rows === 0 ? 'empty' : 'ok'
+
+      // A script names neither its platform nor its account in the command:
+      // read them off what it printed.
+      if (tool === 'Bash') {
+        if (det.platform === 'Ads') done.platform = platformOf(text.slice(0, 20_000))
+        if (x.accounts.length === 0) done.accounts = [...new Set(accountsIn(text.slice(0, 200_000)))].slice(0, 12)
+      }
     }
 
     await update($, calls, list => list.map(c => (c.n === n ? { ...c, ...done } : c)))
+
+    if (done.accounts && done.accounts.length > 0) {
+      const found = done.accounts
+      const platform = done.platform ?? det.platform
+      await update($, review, cur => {
+        if (cur === null) return cur
+
+        let accounts = cur.accounts
+
+        for (const id of found) accounts = mergeAccount(accounts, { platform, id, origin: 'auto', calls: [n] })
+
+        return { ...cur, accounts }
+      })
+    }
 
     if ((done.currency || done.timezone) && x.accounts.length === 1) {
       await update($, review, cur =>
