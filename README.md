@@ -60,6 +60,24 @@ Then type `/media-review demo` to see the panel with sample data.
 
 **Settings** (optional): *Panel language* (auto, en, pt), *Mascot* (on, off) and *Open the panel automatically* (on, off).
 
+### Updates
+
+Claude Code doesn't update plugins from third-party marketplaces, like this one, on its own. To get each new version automatically:
+
+1. In a Claude Code session, type `/plugin`.
+2. Open the **Marketplaces** tab and choose **media-review-panel**.
+3. Turn on auto-update.
+
+With auto-update on, Claude Code checks for a new version a few minutes after the first message of each session. When it updates, you see `Plugin updated`. Type `/reload-plugins` to use the new version right away, or it loads the next time you open Claude.
+
+To update once, without auto-update, open `/plugin`, go to the **Installed** tab, choose the plugin and click **Update now**. From a regular shell:
+
+```bash
+claude plugin update media-review-panel@media-review-panel
+```
+
+If you don't see the auto-update option, Claude Code updates may be turned off (`DISABLE_AUTOUPDATER=1` or `DISABLE_UPDATES=1`). To keep plugin updates only, also set `FORCE_AUTOUPDATE_PLUGINS=1`.
+
 ### About the author
 
 **Pedro Simões**, Media Strategist at **[Tráfego Com Pedro](https://trafegocompedro.com.br)**. Paid media (Google Ads, Meta Ads, TikTok Ads, LinkedIn Ads) and digital marketing, with AI applied to campaign analysis.
@@ -125,6 +143,24 @@ claude plugin install media-review-panel --marketplace trafegocompedro/media-rev
 Depois digite `/media-review demo` para ver o painel com dados de exemplo.
 
 **Configurações** (opcionais): *Panel language* (auto, en, pt), *Mascot* (on, off) e *Open the panel automatically* (on, off).
+
+### Como receber as atualizações
+
+O Claude Code não atualiza sozinho os plugins de marketplaces de terceiros, como este. Para receber cada versão nova sem fazer nada:
+
+1. Numa sessão do Claude Code, digite `/plugin`.
+2. Abra a aba **Marketplaces** e escolha **media-review-panel**.
+3. Ligue a atualização automática (*auto-update*).
+
+Com ela ligada, o Claude Code procura uma versão nova alguns minutos depois da primeira mensagem de cada sessão. Quando ele atualiza, aparece o aviso `Plugin updated`. Digite `/reload-plugins` para usar a versão nova na hora, ou ela entra na próxima vez que você abrir o Claude.
+
+Para atualizar uma vez só, sem ligar a atualização automática, abra `/plugin`, vá na aba **Installed**, escolha o plugin e clique em **Update now**. Num terminal comum, o comando é:
+
+```bash
+claude plugin update media-review-panel@media-review-panel
+```
+
+Se a opção de atualização automática não aparecer, as atualizações do Claude Code podem estar desligadas (`DISABLE_AUTOUPDATER=1` ou `DISABLE_UPDATES=1`). Para manter só as dos plugins, defina também `FORCE_AUTOUPDATE_PLUGINS=1`.
 
 ### Sobre o autor
 
