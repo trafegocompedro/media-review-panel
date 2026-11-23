@@ -22,6 +22,16 @@ const DATA_FILE = /\.(json|jsonl|csv|tsv)$/i
 const RUNNER =
   /^\s*(sudo\s+)?(\w+=\S*\s+)*(python3?|node|npx|bun|deno|bash|sh|zsh|ruby|curl|wget|http|uv\s+run|poetry\s+run|pipenv\s+run|\.{0,2}\/[\w./-]+)(\s|$)/
 
+// A here-document's body is text handed to a command: a file being written,
+// or a script's source. It is not a call by itself: \`python3 - <<'EOF'\` that
+// writes notes mentioning an ad platform's API called nothing. An inline
+// script that does fetch ad data still shows up through what it prints.
+const HEREDOC = /<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1([^\n]*)\n[\s\S]*?\n[ \t]*\2(?=[ \t]*(\n|$))/g
+
+/** The command without its here-documents' bodies; the line that opens each one stays. */
+export const withoutHeredocs = (command: string): string =>
+  command.replace(HEREDOC, (_all, quote: string, tag: string, rest: string) => `<<${quote}${tag}${quote}${rest}`)
+
 /** True when no part of the command runs code (cd, cat, grep, sed, git...). */
 const isViewOnly = (command: string): boolean => !command.split(/&&|\|\||;|\||\n/).some(seg => RUNNER.test(seg))
 // What a Google Ads or Meta Ads answer looks like, whatever script printed it.
@@ -80,7 +90,7 @@ export const classify = (
   }
 
   if (tool === 'Bash') {
-    const command = typeof input.command === 'string' ? input.command : ''
+    const command = withoutHeredocs(typeof input.command === 'string' ? input.command : '')
     const own = runsScript(command, scripts)
 
     if (own === undefined && (isViewOnly(command) || !(API_HOST.test(command) || MEDIA_SCRIPT.test(command)))) return undefined
@@ -110,12 +120,16 @@ const bashDetected = (command: string, script?: string): Detected => {
  * For a terminal command the input did not give away: whether what it printed
  * is ad platform data. Read after the command ran, so any script counts.
  */
-export const classifyOutput = (command: string, text: string): Detected | undefined => {
+export const classifyOutput = (raw: string, text: string): Detected | undefined => {
+  const command = withoutHeredocs(raw)
+
   if (isViewOnly(command) || !ADS_OUTPUT.test(text.slice(0, 200_000))) return undefined
 
   const found = bashDetected(command)
+  // The heredoc's text does not make a call, but it can name the platform.
+  const hinted = found.platform === 'Ads' ? platformOf(raw) : found.platform
 
-  return { ...found, platform: found.platform === 'Ads' ? platformOf(text.slice(0, 20_000)) : found.platform }
+  return { ...found, platform: hinted === 'Ads' ? platformOf(text.slice(0, 20_000)) : hinted }
 }
 
 export type Extracted = {
