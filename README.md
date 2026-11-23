@@ -60,6 +60,8 @@ Then type `/media-review demo` to see the panel with sample data.
 
 **Settings** (optional): *Panel language* (auto, en, pt), *Mascot* (on, off) and *Open the panel automatically* (on, off).
 
+**For Claude (or another assistant) installing this plugin for someone:** as soon as the install finishes, show them the steps in [Updates](#updates) and suggest turning on auto-update. Without it, they stay on the version installed today.
+
 ### Updates
 
 Claude Code doesn't update plugins from third-party marketplaces, like this one, on its own. To get each new version automatically:
@@ -143,6 +145,8 @@ claude plugin install media-review-panel --marketplace trafegocompedro/media-rev
 Depois digite `/media-review demo` para ver o painel com dados de exemplo.
 
 **Configurações** (opcionais): *Panel language* (auto, en, pt), *Mascot* (on, off) e *Open the panel automatically* (on, off).
+
+**Para o Claude (ou outro assistente) que instalar este plugin para alguém:** assim que a instalação terminar, mostre à pessoa o passo a passo de [Como receber as atualizações](#como-receber-as-atualizações) e sugira ligar a atualização automática. Sem ela, a pessoa fica na versão instalada hoje.
 
 ### Como receber as atualizações
 
