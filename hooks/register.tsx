@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { ElementConstructor, EngineInterface, Register, RenderElement, SvgProps, ToolCallResult } from 'claude-code'
 
-import type { CallLog, CallStatus, Dataset, Lang, Mood, Review, StepStatus } from '../types'
+import type { CallLog, CallStatus, Dataset, Lang, Mood, Review, StepStatus, ViewMode } from '../types'
 import { C, barChart, fmt, lineChart, sparkline, textBar } from './charts'
 import { buildDemo } from './demo'
 import { OWN_TOOL, accountsIn, classify, classifyOutput, extract, parseScripts, platformOf, readResult, toNumber } from './detect'
@@ -9,6 +9,7 @@ import { LEVELS, guessLang, levelName, mascotText, strings } from './i18n'
 import type { MascotKey } from './i18n'
 import { robot, robotText } from './mascot'
 import { applyReport, autoWarnings, daysBetween, mergeAccount, newReview } from './review'
+import { capital, checkTotals, friendlyCurrency, friendlyTimezone, glossary, naturalRange, nowLine, plainAlerts, plainColumn, stepPosition } from './plain'
 
 const PANE = 'media-review'
 const SITE = 'https://trafegocompedro.com.br'
@@ -27,6 +28,8 @@ const showAllCalls = atom({ plugin: 'media-review-panel', key: 'showAllCalls' } 
 const muted = atom({ plugin: 'media-review-panel', key: 'muted' } as const, false)
 const lang = atom({ plugin: 'media-review-panel', key: 'lang' } as const, 'en')
 const counter = atom({ plugin: 'media-review-panel', key: 'counter' } as const, 0)
+// Simple is the default: the panel is made for people new to paid media.
+const mode = atom({ plugin: 'media-review-panel', key: 'mode' } as const, 'simple' as ViewMode)
 
 // Raw responses, kept in memory only for the source check (never stored or sent).
 const sources = new Map<number, string>()
@@ -201,7 +204,7 @@ const seriesUnit = (col: string, ds: Dataset): string => {
 const openedFor = new Set<string>()
 
 async function loadDemo($: EngineInterface) {
-  const demo = buildDemo(await $.clock.now())
+  const demo = buildDemo(await $.clock.now(), await read($, lang))
   sources.clear()
   for (const [k, v] of demo.sources) sources.set(k, v)
   await update($, review, () => demo.review)
@@ -291,7 +294,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'media-review',
       description: 'Open the Media Review Panel (paid media transparency and debugging)',
-      argumentHint: '[demo | clear | mute | unmute | en | pt]',
+      argumentHint: '[demo | clear | simple | full | mute | unmute | en | pt]',
     })
     await $.tool.register({ name: 'report', description: REPORT_DESCRIPTION, inputSchema: REPORT_SCHEMA, isDeferred: true })
 
@@ -301,6 +304,10 @@ export const register: Register = (on, options) => {
     else if (options.mascot === 'off') await update($, muted, () => true)
 
     if (langOption !== 'auto') await update($, lang, () => langOption)
+
+    const storedMode = await $.store.get('mode')
+
+    if (storedMode === 'simple' || storedMode === 'full') await update($, mode, () => storedMode)
 
     return next(e)
   })
@@ -517,6 +524,15 @@ export const register: Register = (on, options) => {
       return { text: value ? 'Mascot muted.' : 'Mascot back on.' }
     }
 
+    if (arg === 'simple' || arg === 'simples' || arg === 'full' || arg === 'completo') {
+      const value: ViewMode = arg === 'simple' || arg === 'simples' ? 'simple' : 'full'
+      await update($, mode, () => value)
+      await $.store.set('mode', value)
+      await openPane($)
+
+      return { text: value === 'simple' ? `Media Review Panel: ${t.modeSimple}.` : `Media Review Panel: ${t.modeFull}.` }
+    }
+
     if (arg === 'en' || arg === 'pt') {
       await update($, lang, () => arg)
 
@@ -524,7 +540,7 @@ export const register: Register = (on, options) => {
     }
 
     if (arg !== '') {
-      return { text: 'Usage: /media-review [demo | clear | mute | unmute | en | pt]' }
+      return { text: 'Usage: /media-review [demo | clear | simple | full | mute | unmute | en | pt]' }
     }
 
     if ((await read($, mascot)) === null) await say($, 'm_hello', 'hello')
@@ -537,7 +553,7 @@ export const register: Register = (on, options) => {
     const E = $.ui.resolve(e)
     const { Box, Text, Button, Link, Code, Progress } = E
     const Svg = e.surface === 'terminal' ? undefined : (E as { Svg?: ElementConstructor<SvgProps> }).Svg
-    const [rv, allCalls, m, col, oc, isMuted, lg, tables, allCallsShown] = await Promise.all([
+    const [rv, allCalls, m, col, oc, isMuted, lg, tables, allCallsShown, view] = await Promise.all([
       read($, review),
       read($, calls),
       read($, mascot),
@@ -547,8 +563,10 @@ export const register: Register = (on, options) => {
       read($, lang),
       read($, openTables),
       read($, showAllCalls),
+      read($, mode),
     ])
     const t = strings(lg)
+    const isSimple = view === 'simple'
     const chartW = Math.round(Math.min(560, Math.max(240, e.props.bodyColumns * 7.2 - 28)))
     const list = rv === null ? [] : allCalls.filter(c => c.n >= rv.firstCall)
     const status = rv?.status ?? 'idle'
@@ -589,8 +607,8 @@ export const register: Register = (on, options) => {
               <Text color={C.bright} weight="semibold" wrap="truncate-end">
                 {title}
               </Text>
-              <Text color={statusColor} mono size="caption">
-                ● {statusWord}
+              <Text color={statusColor} mono={!isSimple} size="caption">
+                ● {isSimple ? nowLine(rv, lg) : statusWord}
               </Text>
             </Box>
           </Box>
@@ -805,12 +823,16 @@ export const register: Register = (on, options) => {
       )
     }
 
-    const tableOf = (ds: Dataset) => {
+    const tableOf = (ds: Dataset, simple = false) => {
       const shown = ds.rows.slice(0, 25)
       const xIdx = Math.max(0, ds.columns.indexOf(ds.x ?? ds.columns[0] ?? ''))
       const missing = new Set(ds.check.missingCells)
       const isCalc = (ci: number) => ds.calculated.includes(ds.columns[ci] ?? '')
-      const head = (h: string, ci: number) => (isCalc(ci) ? `${h}*` : h)
+      const head = (h: string, ci: number) => {
+        const name = simple ? plainColumn(h, lg) : h
+
+        return isCalc(ci) ? `${name}*` : name
+      }
       // A mark beside the color, so a reader who can't tell the red still sees it.
       const cellText = (v: unknown, ci: number, ri: number): string => {
         if (v === null || v === undefined) return '—'
@@ -854,7 +876,7 @@ export const register: Register = (on, options) => {
       )
     }
 
-    const chartsOf = (ds: Dataset) => {
+    const chartsOf = (ds: Dataset, simple = false) => {
       const xName = ds.x ?? ds.columns[0] ?? ''
       const xIdx = Math.max(0, ds.columns.indexOf(xName))
       const numeric = ds.columns.filter((c, i) => i !== xIdx && ds.rows.some(r => toNumber(r[i]) !== undefined))
@@ -882,7 +904,8 @@ export const register: Register = (on, options) => {
           out.push(
             <Box flexDirection="column">
               <Text size="footnote" color={C.text} weight="medium">
-                {s} <Text color={C.dim} mono size="caption">{stats.join(' · ')}</Text>
+                {simple ? plainColumn(s, lg) : s}{' '}
+                {simple ? '' : <Text color={C.dim} mono size="caption">{stats.join(' · ')}</Text>}
               </Text>
               {Svg ? (
                 <Svg source={lineChart({ labels, values, name: s, tip, width: chartW })} alt={`${ds.title}: ${s} by ${xName}`} isInteractive />
@@ -904,7 +927,7 @@ export const register: Register = (on, options) => {
           out.push(
             <Box flexDirection="column">
               <Text size="footnote" color={C.text} weight="medium">
-                {s}
+                {simple ? plainColumn(s, lg) : s}
                 {ds.calculated.includes(s) ? <Text color={C.dim} size="caption"> ({t.calculated})</Text> : ''}
               </Text>
               {Svg ? (
@@ -1104,8 +1127,24 @@ export const register: Register = (on, options) => {
       return out
     }
 
+    const setMode = async (value: ViewMode) => {
+      await update($, mode, () => value)
+      await $.store.set('mode', value)
+    }
+    const modeSwitch = (
+      <Box flexDirection="row" gap={1}>
+        <Button key="mode-simple" variant={isSimple ? 'primary' : 'secondary'} onPress={() => setMode('simple')}>
+          {t.modeSimple}
+        </Button>
+        <Button key="mode-full" variant={isSimple ? 'secondary' : 'primary'} onPress={() => setMode('full')}>
+          {t.modeFull}
+        </Button>
+      </Box>
+    )
+
     const header = (
       <Box flexDirection="column" borderStyle="single" borderColor={C.border} backgroundColor={C.card} paddingX={1} gap={1}>
+        <Box flexDirection="row" justifyContent="flex-end">{modeSwitch}</Box>
         <Box flexDirection="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
           <Box flexDirection="column" flexShrink={1}>
             <Text color={C.muted} weight="semibold" size="caption">
@@ -1210,6 +1249,433 @@ export const register: Register = (on, options) => {
         </Text>
       </Box>
     )
+
+    // --- Simple view: the same review in plain words, for people new to paid media.
+    // Every technical detail stays one press away, under "Technical details".
+    const card = (heading: string, body: (RenderElement | null)[]) => (
+      <Box flexDirection="column" borderStyle="round" borderColor={C.border2} backgroundColor={C.card} paddingX={1} paddingY={1} gap={1}>
+        <Text color={C.bright} weight="semibold">
+          {heading}
+        </Text>
+        {body.filter((x): x is RenderElement => x !== null)}
+      </Box>
+    )
+
+    const pill = (text: string, color: string, bg?: string) => (
+      <Text size="caption" color={color} backgroundColor={bg}>
+        {` ${text} `}
+      </Text>
+    )
+
+    const platformLabel = (p: string): string => p.replace(/\s*ads$/i, '')
+
+    const pos = stepPosition(rv)
+    const simpleProgress =
+      steps.length > 0 ? (
+        <Progress label={t.sec_status} value={stepsDone} max={steps.length} valueText={pos ? t.stepOf(pos[0], pos[1]) : ''} color={C.tcp} />
+      ) : null
+
+    const bipLine = !isMuted ? (
+      <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+        <Box flexShrink={1}>
+          <Text size="footnote" color={C.muted}>
+            {t.bipSays(bubble)}
+          </Text>
+        </Box>
+        <Button
+          key="mute"
+          plain
+          dimColor
+          onPress={async () => {
+            await update($, muted, () => true)
+            await $.store.set('muted', true)
+          }}
+        >
+          {t.mute}
+        </Button>
+      </Box>
+    ) : (
+      <Button
+        key="unmute"
+        plain
+        dimColor
+        onPress={async () => {
+          await update($, muted, () => false)
+          await $.store.set('muted', false)
+        }}
+      >
+        {t.unmute}
+      </Button>
+    )
+
+    const hero = (
+      <Box flexDirection="column" borderStyle="round" borderColor={C.border2} backgroundColor={C.card} paddingX={1} paddingY={1} gap={1}>
+        <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+          <Text color={C.muted} weight="semibold" size="caption">
+            {t.title} <Text color={C.dim}>· {t.by}</Text>
+          </Text>
+          {modeSwitch}
+        </Box>
+        <Box flexDirection="row" gap={2} alignItems="center">
+          {!isMuted ? mascotArt(56) : null}
+          <Box flexDirection="column" flexShrink={1}>
+            <Text color={C.muted} size="caption">
+              {t.now}
+            </Text>
+            <Text color={C.bright} size="heading" weight="semibold">
+              {nowLine(rv, lg)}
+            </Text>
+            {rv ? (
+              <Text color={C.dim} size="footnote">
+                {title}
+              </Text>
+            ) : null}
+          </Box>
+        </Box>
+        {simpleProgress}
+        {bipLine}
+      </Box>
+    )
+
+    const sampleBanner = rv?.isDemo ? (
+      <Box borderStyle="round" borderColor={C.warn} paddingX={1}>
+        <Text color={C.warnText} size="footnote">
+          ▲ {t.sampleBanner}
+        </Text>
+      </Box>
+    ) : null
+
+    // Alerts, most serious first, each with what to do next.
+    const plain = rv ? plainAlerts(rv, list, lg) : []
+    const allAlertsShown = col.includes('alerts-all')
+    const ALERT_MARK: Record<string, [string, string]> = { danger: ['✕', C.err], warn: ['⚠', C.warnText], info: ['ℹ', C.infoText] }
+    const attention =
+      plain.length > 0 ? (
+        <Box flexDirection="column" borderStyle="round" borderColor={C.warn} backgroundColor={C.card} paddingX={1} paddingY={1} gap={1}>
+          <Text color={C.warnText} weight="semibold">
+            ⚠ {t.attention} <Text color={C.dim}>· {plain.length}</Text>
+          </Text>
+          {(allAlertsShown ? plain : plain.slice(0, 3)).map(a => {
+            const [mark, color] = ALERT_MARK[a.level] ?? ['ℹ', C.infoText]
+
+            return (
+              <Box flexDirection="row" gap={1}>
+                <Box width={2}>
+                  <Text color={color} weight="semibold">
+                    {mark}
+                  </Text>
+                </Box>
+                <Box flexDirection="column" flexShrink={1}>
+                  <Text color={C.bright} weight="medium">
+                    {a.title}
+                  </Text>
+                  {a.body ? (
+                    <Text size="footnote" color={C.muted}>
+                      {a.body}
+                    </Text>
+                  ) : null}
+                  {a.todo ? (
+                    <Box backgroundColor={C.grid} paddingX={1}>
+                      <Text size="footnote" color={C.text}>
+                        <Text weight="semibold" color={C.bright}>
+                          {t.whatToDo}
+                        </Text>
+                        {a.todo}
+                      </Text>
+                    </Box>
+                  ) : null}
+                </Box>
+              </Box>
+            )
+          })}
+          {plain.length > 3 ? (
+            <Button key="alerts-more" plain dimColor onPress={() => toggle('alerts-all')}>
+              {allAlertsShown ? `▴ ${t.fewerAlerts}` : `▾ ${t.moreAlertsBtn(plain.length - 3)}`}
+            </Button>
+          ) : null}
+        </Box>
+      ) : null
+
+    // Three numbers at a glance.
+    const totals = checkTotals(rv)
+    const checkedAll = totals.found + totals.missing
+    const firstPeriod = rv?.periods[0]
+    const platforms = [...new Set((rv?.accounts ?? []).map(a => platformLabel(a.platform)))]
+    const tile = (label: string, big: string, caption: string, captionColor: string = C.muted, bigSize: 'title' | 'heading' = 'title') => (
+      <Box flexDirection="column" flexGrow={1} minWidth={14} borderStyle="round" borderColor={C.border2} backgroundColor={C.card} paddingX={1}>
+        <Text size="caption" color={C.muted}>
+          {label}
+        </Text>
+        <Text size={bigSize} weight="semibold" color={C.bright}>
+          {big}
+        </Text>
+        {caption ? (
+          <Text size="caption" color={captionColor}>
+            {caption}
+          </Text>
+        ) : null}
+      </Box>
+    )
+    const tiles = rv ? (
+      <Box flexDirection="row" flexWrap="wrap" gap={1}>
+        {tile(t.tileAccounts, String(rv.accounts.length), platforms.join(lg === 'pt' ? ' e ' : ' and '))}
+        {tile(
+          t.tilePeriod,
+          firstPeriod ? capital(naturalRange(firstPeriod.start, firstPeriod.end, lg)) : '—',
+          firstPeriod?.compareStart && firstPeriod.compareEnd ? t.comparedWith(naturalRange(firstPeriod.compareStart, firstPeriod.compareEnd, lg)) : '',
+          C.muted,
+          'heading',
+        )}
+        {tile(
+          t.tileChecked,
+          checkedAll > 0 ? `${totals.found} ${t.of} ${checkedAll}` : t.noneYet,
+          totals.missing > 0 ? t.notMatch(totals.missing) : totals.found > 0 ? t.allMatch : '',
+          totals.missing > 0 ? C.warnText : C.okText,
+          checkedAll > 0 ? 'title' : 'heading',
+        )}
+      </Box>
+    ) : null
+
+    // The steps as a path: done, happening now, still to come.
+    const stepsCard =
+      steps.length > 0
+        ? card(
+            t.stepsTitle,
+            steps.map((s, i) => {
+              const isNow = s.status === 'fetching' || s.status === 'analyzing'
+              const badgeEl =
+                s.status === 'done'
+                  ? pill('✓', C.okText, C.okBg)
+                  : s.status === 'error'
+                    ? pill('✕', C.err, C.warnBg)
+                    : isNow
+                      ? pill(String(i + 1), C.onTcp, C.tcp)
+                      : pill(String(i + 1), C.dim, C.grid)
+
+              return (
+                <Box flexDirection="row" gap={1}>
+                  <Box width={4}>{badgeEl}</Box>
+                  <Box flexDirection="column" flexShrink={1}>
+                    <Text color={s.status === 'queued' ? C.muted : isNow ? C.bright : C.text} weight={isNow ? 'semibold' : 'regular'}>
+                      {s.label}
+                    </Text>
+                    {isNow ? (
+                      <Text size="caption" color={C.tcp}>
+                        ● {t.happeningNow}
+                        {s.note ? ` · ${s.note}` : ''}
+                      </Text>
+                    ) : s.note ? (
+                      muteDim(s.note)
+                    ) : null}
+                  </Box>
+                </Box>
+              )
+            }),
+          )
+        : null
+
+    // Each chart with its totals, a check badge and the meaning of its metrics.
+    const explained = new Set<string>()
+    const headlines = (ds: Dataset): { label: string; value: string }[] => {
+      const xIdx = Math.max(0, ds.columns.indexOf(ds.x ?? ds.columns[0] ?? ''))
+      const series = (ds.series && ds.series.length ? ds.series : ds.columns.filter((_, i) => i !== xIdx)).slice(0, 2)
+
+      return series
+        .map(s => {
+          const si = ds.columns.indexOf(s)
+          const unit = seriesUnit(s, ds)
+
+          if (si < 0 || (unit !== 'currency' && unit !== 'count')) return undefined
+
+          const sum = ds.rows.reduce((a, r) => a + (toNumber(r[si]) ?? 0), 0)
+
+          return { label: plainColumn(s, lg), value: fmt(sum, lg, unit, ds.currency ?? rv?.currency) }
+        })
+        .filter((x): x is { label: string; value: string } => x !== undefined)
+    }
+    const badgesOf = (ds: Dataset): RenderElement[] => {
+      const c = ds.check
+      const total = c.found + c.missing
+      const out: RenderElement[] = []
+
+      if (c.note === 'none-cited') out.push(pill(t.badgeNone, C.warnText, C.warnBg))
+      else {
+        if (c.missing > 0) out.push(pill(t.badgeMissing(c.missing), C.warnText, C.warnBg))
+        if (total > 0) out.push(pill(t.badgeOk(c.found, total), C.okText, C.okBg))
+      }
+      if (c.calculated > 0) out.push(pill(t.badgeCalc(c.calculated), C.muted, C.grid))
+      if (c.unchecked > 0) out.push(pill(t.badgeUnchecked(c.unchecked), C.muted, C.grid))
+
+      return out
+    }
+    const numberCards = (rv?.datasets ?? []).map(ds => {
+      const heads = ds.chart === 'line' ? headlines(ds) : []
+      const meaning = glossary(ds.columns, lg, explained)
+
+      return card(ds.title, [
+        heads.length > 0 ? (
+          <Box flexDirection="row" flexWrap="wrap" gap={3}>
+            {heads.map(head => (
+              <Box flexDirection="column">
+                <Text size="title" weight="semibold" color={C.bright}>
+                  {head.value}
+                </Text>
+                <Text size="caption" color={C.muted}>
+                  {t.inPeriod(head.label)}
+                </Text>
+              </Box>
+            ))}
+          </Box>
+        ) : null,
+        ds.chart === 'table' ? tableOf(ds, true) : (
+          <Box flexDirection="column" gap={1}>
+            {chartsOf(ds, true)}
+          </Box>
+        ),
+        <Box flexDirection="row" flexWrap="wrap" gap={1}>
+          {badgesOf(ds)}
+        </Box>,
+        ds.note ? muteDim(ds.note) : null,
+        ...meaning.map(line => muteDim(line)),
+      ])
+    })
+    const numbersBlock =
+      numberCards.length > 0 ? (
+        <Box flexDirection="column" gap={1}>
+          <Text color={C.muted} weight="semibold" size="caption">
+            {t.numbers.toUpperCase()}
+          </Text>
+          {numberCards}
+        </Box>
+      ) : null
+
+    // The level ladder, from the whole account down to what people typed.
+    const ladder = (() => {
+      const current = rv?.level
+      const seen = rv?.levelsSeen ?? []
+
+      if (!current && seen.length === 0) return null
+
+      const main = ['account', 'campaign', 'adgroup', 'ad', 'keyword', 'searchterm']
+      const extra = seen.filter(l => !main.includes(l))
+      const items = [...main, ...extra]
+      const chips: RenderElement[] = []
+
+      items.forEach((l, i) => {
+        const isNow = l === current
+        const wasSeen = seen.includes(l)
+
+        chips.push(
+          isNow
+            ? pill(`● ${levelName(lg, l)}`, C.onTcp, C.tcp)
+            : wasSeen
+              ? pill(`✓ ${levelName(lg, l)}`, C.okText, C.okBg)
+              : pill(levelName(lg, l), C.dim, C.grid),
+        )
+        if (i < items.length - 1) chips.push(<Text color={C.dim}>›</Text>)
+      })
+
+      return card(t.lookingAt, [
+        <Box flexDirection="row" flexWrap="wrap" gap={1} alignItems="center">
+          {chips}
+        </Box>,
+        muteDim(t.lookingCaption),
+      ])
+    })()
+
+    // Accounts and the period, with friendly names for settings.
+    const line = (label: string, value: string) => (
+      <Text size="footnote" color={C.text}>
+        <Text color={C.dim}>{label}</Text>
+        {value}
+      </Text>
+    )
+    const tz = rv?.periods.find(p => p.timezone)?.timezone ?? rv?.accounts.find(a => a.timezone)?.timezone
+    const money = rv?.currency ?? rv?.accounts.find(a => a.currency)?.currency
+    const accountsCard = rv
+      ? card(t.accountsPeriod, [
+          ...rv.accounts.map(a => (
+            <Box flexDirection="row" gap={1}>
+              {pill(platformLabel(a.platform), C.infoText, C.grid)}
+              <Box flexDirection="column" flexShrink={1}>
+                <Text color={a.name ? C.bright : C.muted}>{a.name ?? t.noNameAccount}</Text>
+                <Text size="caption" color={C.dim}>
+                  {[`ID ${a.id}`, a.origin === 'auto' ? t.foundAlone : undefined].filter(Boolean).join(' · ')}
+                </Text>
+              </Box>
+            </Box>
+          )),
+          ...rv.periods.map(p => line(t.periodLine, naturalRange(p.start, p.end, lg))),
+          ...rv.periods
+            .filter(p => p.compareStart && p.compareEnd)
+            .map(p => line(t.compareLine, naturalRange(p.compareStart ?? '', p.compareEnd ?? '', lg))),
+          money || tz ? line(t.moneyTime, [money ? friendlyCurrency(money, lg) : undefined, tz ? friendlyTimezone(tz, lg) : undefined].filter(Boolean).join(', ')) : null,
+          rv.attribution ? line(t.howCounted, rv.attribution) : null,
+        ])
+      : null
+
+    // Everything technical, folded by default.
+    const techOpen = col.includes('tech-open')
+    const techCard = rv ? (
+      <Box flexDirection="column" borderStyle="round" borderColor={C.border2} backgroundColor={C.card} paddingX={1} gap={1}>
+        <Button key="tech" plain onPress={() => toggle('tech-open')}>
+          <Text color={C.text} weight="semibold">
+            {techOpen ? '▾ ' : '▸ '}
+            {t.tech}
+          </Text>
+          <Text color={C.dim} size="caption">
+            {'  '}
+            {t.techSummary(
+              list.length,
+              list.filter(c => c.status === 'empty').length,
+              list.filter(c => c.status === 'error' || c.status === 'denied').length,
+              list.filter(c => c.kind === 'write').length,
+            )}
+          </Text>
+        </Button>
+        {techOpen ? debugBody() : null}
+      </Box>
+    ) : null
+
+    const whatIs = card(t.emptyTitle, [
+      <Text color={C.bright} weight="medium">
+        {t.whatIs}
+      </Text>,
+      <Text size="footnote" color={C.text}>
+        <Text color={C.okText}>✓ </Text>
+        {t.whatIs1}
+      </Text>,
+      <Text size="footnote" color={C.text}>
+        <Text color={C.okText}>✓ </Text>
+        {t.whatIs2}
+      </Text>,
+      <Text size="footnote" color={C.text}>
+        <Text color={C.okText}>✓ </Text>
+        {t.whatIs3}
+      </Text>,
+      muteDim(t.whatIsNext),
+      <Button key="load-demo" variant="primary" onPress={() => loadDemo($)}>
+        {t.loadDemo}
+      </Button>,
+    ])
+
+    if (isSimple) {
+      return (
+        <Box flexDirection="column" backgroundColor={C.bg} padding={1} gap={1}>
+          {hero}
+          {rv === null ? whatIs : null}
+          {sampleBanner}
+          {attention}
+          {tiles}
+          {stepsCard}
+          {numbersBlock}
+          {ladder}
+          {accountsCard}
+          {techCard}
+          {footer}
+        </Box>
+      )
+    }
 
     if (rv === null) {
       return (

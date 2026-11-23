@@ -1,7 +1,7 @@
 // SAMPLE DATA for /media-review demo. Every account, name and number here is
 // made up, and the panel labels the review as sample data wherever it shows.
 
-import type { CallLog, Review } from '../types'
+import type { CallLog, Lang, Review } from '../types'
 import { datasetOf } from './review'
 
 const rand = (seed: number) => {
@@ -18,7 +18,10 @@ const day = (i: number) => `2026-10-${String(i + 1).padStart(2, '0')}`
 
 export type Demo = { review: Review; calls: CallLog[]; sources: Map<number, string>; counter: number }
 
-export const buildDemo = (now: number): Demo => {
+/** The sample review, in the panel's language: every name says SAMPLE (EXEMPLO), so it is never mistaken for a real account. */
+export const buildDemo = (now: number, lang: Lang = 'en'): Demo => {
+  const pt = lang === 'pt'
+  const L = (en: string, ptText: string) => (pt ? ptText : en)
   const r = rand(7)
   const daily = [...Array(31).keys()].map(i => {
     const spend = Math.round((380 + r() * 220 + (i % 7 === 5 ? 90 : 0)) * 100) / 100
@@ -29,21 +32,21 @@ export const buildDemo = (now: number): Demo => {
   // One day the platform returned nothing: the chart leaves it blank.
   const gapDay = 17
   const campaigns = [
-    { name: 'SAMPLE | Search | Brand', spend: 3120.4, conv: 141 },
-    { name: 'SAMPLE | PMax | Catalog', spend: 4410.75, conv: 118 },
-    { name: 'SAMPLE | Meta | Prospecting', spend: 3890.2, conv: 96 },
-    { name: 'SAMPLE | Meta | Remarketing', spend: 1540.0, conv: 71 },
-    { name: 'SAMPLE | Search | Generic', spend: 2210.65, conv: 44 },
+    { name: L('SAMPLE | Search | Brand', 'EXEMPLO | Pesquisa | Marca'), spend: 3120.4, conv: 141 },
+    { name: L('SAMPLE | PMax | Catalog', 'EXEMPLO | PMax | Catálogo'), spend: 4410.75, conv: 118 },
+    { name: L('SAMPLE | Meta | Prospecting', 'EXEMPLO | Meta | Novos clientes'), spend: 3890.2, conv: 96 },
+    { name: L('SAMPLE | Meta | Remarketing', 'EXEMPLO | Meta | Remarketing'), spend: 1540.0, conv: 71 },
+    { name: L('SAMPLE | Search | Generic', 'EXEMPLO | Pesquisa | Genérica'), spend: 2210.65, conv: 44 },
   ]
   const keywords = [
-    ['sample running shoes', 1840, 96, 412.3, 18],
-    ['sample trail sneakers', 1210, 51, 260.15, 9],
-    ['sample shoe store near me', 980, 62, 198.4, 11],
-    ['sample kids sneakers', 655, 22, 140.0, 3],
+    [L('sample running shoes', 'exemplo tênis de corrida'), 1840, 96, 412.3, 18],
+    [L('sample trail sneakers', 'exemplo tênis para trilha'), 1210, 51, 260.15, 9],
+    [L('sample shoe store near me', 'exemplo loja de tênis perto de mim'), 980, 62, 198.4, 11],
+    [L('sample kids sneakers', 'exemplo tênis infantil'), 655, 22, 140.0, 3],
   ] as const
 
   const sources = new Map<number, string>()
-  sources.set(1, JSON.stringify({ data: [{ id: 'act_000000000001', name: 'SAMPLE Demo Store (Meta)', currency: 'BRL', timezone_name: 'America/Sao_Paulo' }] }))
+  sources.set(1, JSON.stringify({ data: [{ id: 'act_000000000001', name: L('SAMPLE Demo Store (Meta)', 'EXEMPLO Loja Demo (Meta)'), currency: 'BRL', timezone_name: 'America/Sao_Paulo' }] }))
   sources.set(
     2,
     JSON.stringify({
@@ -101,7 +104,7 @@ export const buildDemo = (now: number): Demo => {
     datasetOf(
       {
         id: 'daily',
-        title: 'Meta: spend and conversions by day',
+        title: L('Meta: spend and conversions by day', 'Meta: investimento e conversões por dia'),
         chart: 'line',
         columns: ['date', 'spend', 'conversions'],
         x: 'date',
@@ -110,14 +113,14 @@ export const buildDemo = (now: number): Demo => {
         currency: 'BRL',
         rows: daily.map((d, i) => (i === gapDay ? [d.date, null, null] : [d.date, d.spend, d.conv])),
         source_calls: [2],
-        note: 'One day came back with no metrics; it is left blank, not filled in.',
+        note: L('One day came back with no metrics; it is left blank, not filled in.', 'Um dia voltou sem números: ficou em branco, sem preencher.'),
       },
       src,
     ),
     datasetOf(
       {
         id: 'by-campaign',
-        title: 'Spend and CPA by campaign',
+        title: L('Spend and CPA by campaign', 'Investimento e custo por conversão, por campanha'),
         chart: 'bar',
         columns: ['campaign', 'spend', 'conversions', 'cpa'],
         x: 'campaign',
@@ -133,7 +136,7 @@ export const buildDemo = (now: number): Demo => {
     datasetOf(
       {
         id: 'keywords',
-        title: 'Top keywords',
+        title: L('Top keywords', 'Principais palavras-chave'),
         chart: 'table',
         columns: ['keyword', 'clicks', 'conversions', 'cost'],
         x: 'keyword',
@@ -149,7 +152,7 @@ export const buildDemo = (now: number): Demo => {
 
   const review: Review = {
     id: `demo${now}`,
-    title: 'SAMPLE: October review, Demo Store',
+    title: L('SAMPLE: October review, Demo Store', 'EXEMPLO: revisão de outubro, Loja Demo'),
     status: 'running',
     isAuto: false,
     isDemo: true,
@@ -157,26 +160,28 @@ export const buildDemo = (now: number): Demo => {
     updatedAt: now,
     firstCall: 1,
     accounts: [
-      { platform: 'Meta Ads', id: 'act_000000000001', name: 'SAMPLE Demo Store (Meta)', currency: 'BRL', timezone: 'America/Sao_Paulo', origin: 'reported', calls: [1, 2] },
-      { platform: 'Google Ads', id: '000-000-0001', name: 'SAMPLE Demo Store (Google)', currency: 'BRL', timezone: 'America/Sao_Paulo', origin: 'reported', calls: [3, 4, 5] },
+      { platform: 'Meta Ads', id: 'act_000000000001', name: L('SAMPLE Demo Store (Meta)', 'EXEMPLO Loja Demo (Meta)'), currency: 'BRL', timezone: 'America/Sao_Paulo', origin: 'reported', calls: [1, 2] },
+      { platform: 'Google Ads', id: '000-000-0001', name: L('SAMPLE Demo Store (Google)', 'EXEMPLO Loja Demo (Google)'), currency: 'BRL', timezone: 'America/Sao_Paulo', origin: 'reported', calls: [3, 4, 5] },
       { platform: 'Google Ads', id: '000-000-0002', origin: 'auto', calls: [3] },
     ],
     steps: [
-      { id: 'accounts', label: 'Identify accounts and settings', status: 'done' },
-      { id: 'meta-daily', label: 'Meta: daily performance', status: 'done' },
-      { id: 'google-campaigns', label: 'Google: campaigns', status: 'done' },
-      { id: 'google-keywords', label: 'Google: keywords and search terms', status: 'analyzing', note: 'search terms came back empty' },
-      { id: 'findings', label: 'Write findings', status: 'queued' },
+      { id: 'accounts', label: L('Identify accounts and settings', 'Encontrar as contas e as configurações'), status: 'done' },
+      { id: 'meta-daily', label: L('Meta: daily performance', 'Meta: resultado de cada dia'), status: 'done' },
+      { id: 'google-campaigns', label: L('Google: campaigns', 'Google: campanhas'), status: 'done' },
+      { id: 'google-keywords', label: L('Google: keywords and search terms', 'Google: palavras-chave e termos pesquisados'), status: 'analyzing', note: L('search terms came back empty', 'os termos pesquisados voltaram vazios') },
+      { id: 'findings', label: L('Write findings', 'Escrever as conclusões'), status: 'queued' },
     ],
     level: 'keyword',
     levelOrigin: 'reported',
     levelsSeen: ['account', 'campaign', 'searchterm', 'keyword'],
-    periods: [{ label: 'October 2026', start: '2026-10-01', end: '2026-10-31', compareStart: '2026-09-01', compareEnd: '2026-09-30', timezone: 'America/Sao_Paulo' }],
-    attribution: 'Meta: 7-day click, 1-day view · Google: data-driven',
+    periods: [{ label: L('October 2026', 'Outubro de 2026'), start: '2026-10-01', end: '2026-10-31', compareStart: '2026-09-01', compareEnd: '2026-09-30', timezone: 'America/Sao_Paulo' }],
+    attribution: L('Meta: 7-day click, 1-day view · Google: data-driven', 'Meta: até 7 dias depois do clique ou 1 dia depois de ver o anúncio · Google: crédito dividido entre os cliques do caminho'),
     currency: 'BRL',
     datasets,
-    assumptions: ['Conversions = the primary conversion action of each account (sample).', 'Meta and Google are shown side by side, never summed (sample).'],
-    warnings: ['SAMPLE: Google conversions can still change for up to 30 days after the click.'],
+    assumptions: pt
+      ? ['Conversões = a ação de conversão principal de cada conta (exemplo).', 'Meta e Google aparecem lado a lado, nunca somados (exemplo).']
+      : ['Conversions = the primary conversion action of each account (sample).', 'Meta and Google are shown side by side, never summed (sample).'],
+    warnings: [L('SAMPLE: Google conversions can still change for up to 30 days after the click.', 'EXEMPLO: as conversões do Google ainda podem mudar por até 30 dias depois do clique.')],
     reports: 4,
   }
 

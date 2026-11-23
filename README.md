@@ -10,7 +10,9 @@
 
 A side panel for Claude Code that shows exactly what Claude reads while it analyzes your paid media (Google Ads, Meta Ads, TikTok Ads, LinkedIn Ads). It's a transparency and debugging tool: you can check the findings and catch mistakes early.
 
-The panel is **read-only**. It never changes anything in an ad account. It makes no network requests. It keeps review data only for the current session, and the only thing it saves to disk is whether you muted the mascot.
+The panel is **read-only**. It never changes anything in an ad account. It makes no network requests. It keeps review data only for the current session, and the only things it saves to disk are whether you muted the mascot and which view you chose.
+
+It opens in the **Simple** view, made for people new to paid media: what is happening now in one sentence, alerts in plain words with what to do next, three numbers at a glance (accounts, period, numbers checked), the steps, each chart with its totals and a check badge, and the meaning of each metric. Every technical detail is folded under *Technical details*. Press **Full** at the top for every section open, as a specialist would want it. The panel remembers your choice.
 
 ### What the panel shows
 
@@ -35,6 +37,7 @@ Bip, the pixel-art robot in the corner, wears the greens of Tráfego Com Pedro a
 | `/media-review` | Opens the panel |
 | `/media-review demo` | Loads clearly labeled **sample data** so you can see every section |
 | `/media-review clear` | Empties the panel |
+| `/media-review simple` / `full` | Switches between the Simple and Full views |
 | `/media-review mute` / `unmute` | Hides or shows the mascot |
 | `/media-review en` / `pt` | Sets the panel language |
 
@@ -96,7 +99,9 @@ MIT. Keep the copyright notice (and the credit) when you share or adapt it.
 
 Um painel lateral para o Claude Code que mostra tudo o que o Claude lê enquanto analisa a sua mídia paga (Google Ads, Meta Ads, TikTok Ads, LinkedIn Ads). É uma ferramenta de transparência e de conferência: você confere as conclusões e pega erros cedo.
 
-O painel é **somente leitura**. Ele nunca muda nada em uma conta de anúncios. Ele não acessa a internet. Os dados da revisão ficam só na sessão atual, e a única coisa que ele grava no computador é se você silenciou o mascote.
+O painel é **somente leitura**. Ele nunca muda nada em uma conta de anúncios. Ele não acessa a internet. Os dados da revisão ficam só na sessão atual, e as únicas coisas que ele grava no computador são se você silenciou o mascote e qual visão escolheu.
+
+Ele abre na visão **Simples**, feita para quem está começando em mídia paga: o que está acontecendo agora numa frase, avisos em português simples com o que fazer, três números de cara (contas, período e números conferidos), as etapas, cada gráfico com os totais e um selo de conferência, e o que quer dizer cada métrica. Os detalhes técnicos ficam recolhidos em *Detalhes técnicos*. Aperte **Completo** no topo para ver todas as seções abertas, do jeito que um especialista gosta. O painel lembra a sua escolha.
 
 ### O que o painel mostra
 
@@ -121,6 +126,7 @@ O Bip, o robô em pixel art no canto, usa os verdes da Tráfego Com Pedro e ence
 | `/media-review` | Abre o painel |
 | `/media-review demo` | Carrega **dados de exemplo**, marcados como exemplo, para você ver todas as seções |
 | `/media-review clear` | Limpa o painel |
+| `/media-review simples` / `completo` | Troca entre a visão Simples e a Completa |
 | `/media-review mute` / `unmute` | Esconde ou mostra o mascote |
 | `/media-review en` / `pt` | Define o idioma do painel |
 

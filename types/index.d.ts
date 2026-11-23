@@ -130,6 +130,9 @@ export type Mood =
 
 export type Mascot = { key: string; detail?: string; mood: Mood; at: number }
 
+/** Simple: plain words for beginners. Full: every technical detail open. */
+export type ViewMode = 'simple' | 'full'
+
 declare module 'claude-code' {
   interface PluginState {
     'media-review-panel': {
@@ -143,6 +146,7 @@ declare module 'claude-code' {
       muted: boolean
       lang: Lang
       counter: number
+      mode: ViewMode
     }
   }
 }

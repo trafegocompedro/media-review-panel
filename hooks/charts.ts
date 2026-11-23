@@ -18,6 +18,14 @@ export const C = {
   ok: '#89d185',
   warn: '#cca700',
   err: '#f14c4c',
+  // Simple view: the TCP green for progress and what is right, soft fills for badges.
+  tcp: '#7fba24',
+  onTcp: '#0d1f05',
+  okBg: '#1f3312',
+  okText: '#b9e07a',
+  warnBg: '#3a2e10',
+  warnText: '#f0c75e',
+  infoText: '#7fb6f0',
 }
 
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
