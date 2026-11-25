@@ -4,6 +4,7 @@
 import type { CallLog, Lang, LaunchPiece, Review } from '../types'
 import { checkAnswer } from './answer'
 import { numberIndex } from './detect'
+import { rowLabels, rowSums } from './rows'
 import { pieceOf } from './launch'
 import { datasetOf } from './review'
 
@@ -213,7 +214,15 @@ export const buildDemo = (now: number, lang: Lang = 'en'): Demo => {
     reports: 4,
   }
 
-  review.answer = checkAnswer(pt ? ANSWER_PT : ANSWER_EN, numberIndex([...sources.values()].join('\n')), [], now, lang)
+  review.answer = checkAnswer(
+    pt ? ANSWER_PT : ANSWER_EN,
+    numberIndex([...sources.values()].join('\n')),
+    [],
+    now,
+    lang,
+    [...sources.values()].flatMap(rowSums).sort((a, b) => a - b),
+    new Map([...sources.values()].flatMap(v => [...rowLabels(v)])),
+  )
 
   return { review, calls, sources, counter: 5 }
 }

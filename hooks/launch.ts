@@ -183,6 +183,7 @@ export const pieceOf = (tool: string, input: In, ctx: PieceContext): Omit<Launch
   let name: string | undefined
   let parent: string | undefined
   let entity: string | undefined
+  let scope: string[] | undefined
 
   if (kind === 'campaign') {
     name = str(input.campaign_name)
@@ -282,7 +283,14 @@ export const pieceOf = (tool: string, input: In, ctx: PieceContext): Omit<Launch
       }
     }
 
-    if (kind === 'activate') alerts.push({ level: 'danger', code: 'goesLive' })
+    if (kind === 'activate') {
+      alerts.push({ level: 'danger', code: 'goesLive' })
+
+      // A draft publish names the exact objects it puts live.
+      const ids = list(input.object_ids).map(x => String(x)).filter(x => /^\d{5,}$/.test(x))
+
+      if (ids.length > 0) scope = ids
+    }
     if (kind === 'delete') alerts.push({ level: 'danger', code: 'deleteForever' })
   } else if (kind === 'duplicate') {
     entity = str(input.entity_type)
@@ -309,7 +317,7 @@ export const pieceOf = (tool: string, input: In, ctx: PieceContext): Omit<Launch
   if (facts.some(f => f.k === 'link' && !f.hasUtm)) alerts.push({ level: 'warn', code: 'noUtm' })
   if (account && ctx.accounts.length > 0 && !ctx.accounts.includes(account)) alerts.push({ level: 'warn', code: 'otherAccount', v: account })
 
-  return { kind, tool, name, parent, account, entity, facts, alerts }
+  return { kind, tool, name, parent, account, entity, scope, facts, alerts }
 }
 
 const ID_KEYS: Partial<Record<PieceKind, string[]>> = {
@@ -318,13 +326,17 @@ const ID_KEYS: Partial<Record<PieceKind, string[]>> = {
   creative: ['creative_id'],
   ad: ['ad_id'],
   boost: ['ad_id'],
+  update: ['entity_id'],
+  activate: ['entity_id'],
 }
 
 export type PieceResult = { id?: string; result?: string; errors: number; error?: string }
 
 /** What the platform answered: the new ID, its status, and any validation errors. */
-export const resultOf = (kind: PieceKind, text: string): PieceResult => {
+export const resultOf = (kind: PieceKind, raw: string): PieceResult => {
   const out: PieceResult = { errors: 0 }
+  // The connector often answers JSON inside a string ("result":"{\"status\":...}"): read through it.
+  const text = raw.replace(/\\+"/g, '"')
   const pick = (key: string) => new RegExp(`"${key}"\\s*:\\s*"?(\\d{5,})"?`).exec(text)?.[1]
 
   for (const key of [...(ID_KEYS[kind] ?? []), 'id']) {
@@ -340,11 +352,13 @@ export const resultOf = (kind: PieceKind, text: string): PieceResult => {
 
   out.result = /"is_draft"\s*:\s*true/.test(text) ? 'DRAFT' : status
 
-  const errs = /"active_errors"\s*:\s*\[([\s\S]*?)\]\s*[,}]/.exec(text)?.[1]?.trim()
+  // A list, or the same list written as a string ("active_errors":"[]").
+  const errs = /"active_errors"\s*:\s*"?\[([\s\S]*?)\]"?\s*[,}]/.exec(text)?.[1]?.trim()
 
   if (errs) out.errors = Math.max(1, (errs.match(/\{/g) ?? []).length)
 
-  const err = /^\s*\{\s*"error"/.test(text) ? (/"(?:message|error_user_msg|error_message)"\s*:\s*"([^"]{1,240})/.exec(text)?.[1] ?? text.slice(0, 200)) : undefined
+  const isErr = /^\s*\{\s*"error"\s*:\s*[{"]/.test(text) || /"error"\s*:\s*\{\s*"(?:message|code|type)"/.test(text) || /"success"\s*:\s*false/.test(text)
+  const err = isErr ? (/"(?:message|error_user_msg|error_message)"\s*:\s*"([^"]{1,240})/.exec(text)?.[1] ?? text.slice(0, 200)) : undefined
 
   if (err) out.error = err
 
@@ -398,7 +412,7 @@ export const managerLink = (p: LaunchPiece): string | undefined => {
 export const domainOf = (url: string): string => url.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split(/[/?#]/)[0]?.toLowerCase() ?? url
 
 // What a person checks before something goes live.
-const LIVE_FACTS = new Set(['objective', 'goal', 'budget', 'dates', 'where', 'ages', 'audience', 'link', 'button'])
+const LIVE_FACTS = new Set(['objective', 'goal', 'budget', 'dates', 'where', 'ages', 'audience', 'link', 'button', 'change'])
 
 /**
  * What an activation puts live, from the pieces of this launch: the campaign,
@@ -410,21 +424,31 @@ export const liveScope = (p: LaunchPiece, pieces: LaunchPiece[]): { piece: Launc
 
   if (p.kind !== 'activate' || !target) return []
 
-  const built = pieces.filter(x => x.state === 'ok' && x.id)
-  const byId = (id: string) => built.find(x => x.id === id)
-  const root = byId(target.id)
-
-  if (!root) return []
-
-  const adsets = root.kind === 'campaign' ? built.filter(x => x.kind === 'adset' && x.parent === root.id) : root.kind === 'adset' ? [root] : []
-  const ads = root.kind === 'ad' ? [root] : built.filter(x => x.kind === 'ad' && adsets.some(s => s.id === x.parent))
+  const built = pieces.filter(x => x.state === 'ok' && x.id && x.kind !== 'update' && x.kind !== 'activate')
+  const ids = new Set([target.id, ...(p.scope ?? [])])
+  const roots = built.filter(x => x.id && ids.has(x.id))
+  const campaigns = roots.filter(x => x.kind === 'campaign')
+  const adsets = [...roots.filter(x => x.kind === 'adset'), ...built.filter(x => x.kind === 'adset' && campaigns.some(c => c.id === x.parent))]
+  const ads = [...roots.filter(x => x.kind === 'ad'), ...built.filter(x => x.kind === 'ad' && adsets.some(s => s.id === x.parent))]
   const creativeIds = new Set(
     ads.flatMap(a => a.facts.filter((f): f is Extract<LaunchFact, { k: 'media' }> => f.k === 'media' && f.v === 'creative').map(f => f.ref ?? '')),
   )
   const creatives = built.filter(x => x.kind === 'creative' && x.id && creativeIds.has(x.id))
-  const scope = [...(root.kind === 'campaign' ? [root] : []), ...adsets, ...ads, ...creatives]
 
-  return scope
-    .map(piece => ({ piece, facts: piece.facts.filter(f => LIVE_FACTS.has(f.k)) }))
+  // Changes staged since the last go-live, on what this one publishes (or all, when it names nothing but itself).
+  const at = pieces.indexOf(p)
+  const lastLive = pieces.slice(0, at < 0 ? pieces.length : at).map(x => x.kind).lastIndexOf('activate')
+  const staged = pieces
+    .slice(lastLive + 1, at < 0 ? pieces.length : at)
+    .filter(x => x.kind === 'update' && x.state === 'ok')
+    .filter(x => {
+      const t = x.facts.find((f): f is Extract<LaunchFact, { k: 'target' }> => f.k === 'target')
+
+      return t !== undefined && (p.scope === undefined || ids.has(t.id))
+    })
+  const unique = [...new Set([...campaigns, ...adsets, ...ads, ...creatives, ...staged])]
+
+  return unique
+    .map(piece => ({ piece, facts: piece.facts.filter(f => LIVE_FACTS.has(f.k) || (piece.kind === 'update' && f.k === 'target')) }))
     .filter(x => x.facts.length > 0)
 }

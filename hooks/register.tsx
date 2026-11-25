@@ -9,6 +9,7 @@ import { buildDemo, buildLaunchDemo } from './demo'
 import { digestOf, unitOf } from './digest'
 import type { Digest, Metric, Total } from './digest'
 import { checkAnswer } from './answer'
+import { rowLabels, rowSums } from './rows'
 import { OWN_TOOL, accountsIn, classify, classifyOutput, extract, numberIndex, parseScripts, platformOf, readResult, savedPath, toNumber } from './detect'
 import { LEVELS, guessLang, levelName, mascotText, strings } from './i18n'
 import type { MascotKey } from './i18n'
@@ -57,12 +58,27 @@ const openPieces = atom({ plugin: 'media-review-panel', key: 'openPieces' } as c
 // Raw responses, kept in memory only for the source check (never stored or sent).
 const sources = new Map<number, string>()
 const MAX_SOURCE = 400_000
+// The totals of each response's rows (per campaign, per day, overall), for the answer check.
+const sourceSums = new Map<number, number[]>()
+// The numbers of each named row (a campaign, a day), so a table cell is checked in its own row.
+const sourceLabels = new Map<number, Map<string, number[]>>()
 const keepSource = (n: number, text: string) => {
-  sources.set(n, text.length > MAX_SOURCE ? text.slice(0, MAX_SOURCE) : text)
+  const kept = text.length > MAX_SOURCE ? text.slice(0, MAX_SOURCE) : text
+
+  sources.set(n, kept)
+  try {
+    sourceSums.set(n, rowSums(kept))
+    sourceLabels.set(n, rowLabels(kept))
+  } catch {
+    sourceSums.set(n, [])
+    sourceLabels.delete(n)
+  }
 
   for (const k of [...sources.keys()]) {
     if (sources.size <= 80) break
     sources.delete(k)
+    sourceSums.delete(k)
+    sourceLabels.delete(k)
   }
 }
 const sourceText = (n: number) => sources.get(n)
@@ -74,7 +90,7 @@ const MAX_OTHER = 100_000
 const keepOther = (text: string) => {
   if (text.trim() === '') return
   others.push(text.length > MAX_OTHER ? text.slice(0, MAX_OTHER) : text)
-  if (others.length > 40) others.splice(0, others.length - 40)
+  if (others.length > 80) others.splice(0, others.length - 80)
 }
 const keepOtherResult = (r: ToolCallResult) => {
   try {
@@ -692,18 +708,28 @@ export const register: Register = (on, options) => {
       const cur = await read($, review)
 
       if (touched && !e.isAborted && cur !== null && !cur.isDemo && typeof e.answer === 'string' && e.answer.trim() !== '') {
+        // What Claude said before is no new source, but repeating it is no new claim either.
+        const said = e.answer
+
         const list = await read($, calls)
-        const media = list
-          .filter(c => c.n >= cur.firstCall)
-          .map(c => sources.get(c.n))
-          .filter((x): x is string => x !== undefined)
+        const inReview = list.filter(c => c.n >= cur.firstCall)
+        const media = inReview.map(c => sources.get(c.n)).filter((x): x is string => x !== undefined)
+        const sums = inReview.flatMap(c => sourceSums.get(c.n) ?? []).sort((a, b) => a - b)
+        const labels = new Map<string, number[]>()
+
+        for (const c of inReview) {
+          for (const [k, v] of sourceLabels.get(c.n) ?? []) labels.set(k, [...(labels.get(k) ?? []), ...v])
+        }
+        for (const [k, v] of labels) labels.set(k, v.sort((a, b) => a - b))
 
         if (media.length > 0) {
           const at = await $.clock.now()
           const lg = await read($, lang)
-          const check = checkAnswer(e.answer, numberIndex(media.join('\n')), numberIndex(others.join('\n')), at, lg)
+          const check = checkAnswer(e.answer, numberIndex(media.join('\n')), numberIndex(others.join('\n')), at, lg, sums, labels)
 
           await update($, review, rv => (rv === null || rv.id !== cur.id ? rv : { ...rv, answer: check }))
+
+          keepOther(said)
 
           if (check.missing.length > 0) {
             isSuspect = true
@@ -1733,7 +1759,7 @@ export const register: Register = (on, options) => {
                 <Text color={C.warnText} weight="semibold">
                   {`! ${m.text}`}
                 </Text>
-                {m.context ? <Text color={C.muted}>{`  ${m.context}`}</Text> : null}
+                {m.context ? <Text color={C.muted}>{`  ${m.context}${m.isWrongRow ? ` · ${t.ansWrongRow}` : ''}`}</Text> : null}
               </Text>
             ))}
             {ans.missing.length > shown.length ? muteDim(t.ansMore(ans.missing.length - shown.length)) : null}

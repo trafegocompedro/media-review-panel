@@ -188,10 +188,10 @@ export const checkTotals = (review: Review | null): { found: number; missing: nu
 }
 
 /** The first numbers of the answer that no query backs, as the person reads them. */
-export const answerSample = (review: Review, max = 3): string =>
+export const answerSample = (review: Review, lang: Lang, max = 3): string =>
   (review.answer?.missing ?? [])
     .slice(0, max)
-    .map(m => (m.context ? `${m.text} (${m.context})` : m.text))
+    .map(m => (m.context ? `${m.text} (${m.context}${m.isWrongRow ? `: ${strings(lang).ansWrongRow}` : ''})` : m.text))
     .join('; ')
 
 // The first number a dataset could not find, named the way a person would say it.
@@ -415,7 +415,7 @@ export const plainAlerts = (review: Review, calls: CallLog[], lang: Lang): Alert
   // What reaches a client is the answer: its numbers lead the warnings.
   const missed = review.answer?.missing.length ?? 0
 
-  if (missed > 0) out.push({ level: 'warn', title: t.a_answer_t(missed), body: t.a_answer_b(answerSample(review)), todo: t.a_answer_d })
+  if (missed > 0) out.push({ level: 'warn', title: t.a_answer_t(missed), body: t.a_answer_b(answerSample(review, lang)), todo: t.a_answer_d })
 
   for (const ds of review.datasets) {
     if (ds.check.missing > 0) {

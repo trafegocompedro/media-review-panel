@@ -51,7 +51,12 @@ export type CheckResult = {
 }
 
 /** One number of Claude's final answer that the panel could not find. */
-export type AnswerMiss = { text: string; context: string }
+export type AnswerMiss = {
+  text: string
+  context: string
+  /** In the data, but in another row: the cost of another campaign, written in this one's line. */
+  isWrongRow?: boolean
+}
 
 /** The numbers of Claude's last answer, looked up in what the session read. */
 export type AnswerCheck = {
@@ -182,6 +187,8 @@ export type LaunchPiece = {
   account?: string
   /** campaign, ad_set or ad, for a change or an activation. */
   entity?: string
+  /** The exact objects a draft publish puts live (object_ids). */
+  scope?: string[]
   /** What the platform answered: DRAFT, PAUSED, ACTIVE, PUBLISHING. */
   result?: string
   facts: LaunchFact[]

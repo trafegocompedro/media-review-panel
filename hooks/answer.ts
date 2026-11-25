@@ -1,5 +1,6 @@
 import type { AnswerCheck, AnswerMiss, Lang } from '../types'
 import { isCommon, isNear } from './detect'
+import { rowNumbers } from './rows'
 import { guessLang } from './i18n'
 
 /**
@@ -25,7 +26,7 @@ type Token = {
   isDerived: boolean
   isSmall: boolean
   /** Where it sits in a table of the answer, to add up a column. */
-  cell?: { table: number; row: number; col: number; isTotalRow: boolean }
+  cell?: { table: number; row: number; col: number; isTotalRow: boolean; label: string; isMetric: boolean }
   context: string
 }
 
@@ -58,17 +59,29 @@ const NOISE: RegExp[] = [
   /(?<!(?:R\$|\$|€)\s?)\b(?:19|20)\d{2}\b(?![.,]\d)/g,
   /\b\d{9,}\b/g,
   /^\s*\d+[.)]\s/gm,
+  // A semester or intake written as a year: 2027.1, 2026/2.
+  /\b(?:19|20)\d{2}[./][12]\b/g,
 ]
 
 const blank = (text: string): string =>
   NOISE.reduce((t, re) => t.replace(re, m => ' '.repeat(m.length)), text)
 
 // Written as a rate, an average, a cost per, an estimate or a difference.
+// The words around Claude's own arithmetic: a plan, a projection, what is left, a pace.
 const DERIVED_BEFORE =
-  /\b(cpa|cpl|cpc|cpm|cpv|ctr|roas|cvr|cac|ticket|taxa|rate|m[eé]dia|average|avg|custo\s+por|cost\s+per|por\s+(?:convers|lead|clique|venda|inscri|contato)|per\s+(?:conversion|lead|click|sale)|varia|diferen|differen|cresc|ca[ií]u|queda|alta\s+de|aument|redu|subiu|desceu|vs\.?|versus|cerca\s+de|about|around|aprox|estim|proje|previs|forecast|meta\s+de|target|sobra|resta|falta|saldo|left|remaining)/i
+  /\b(cpa|cpl|cpc|cpm|cpv|ctr|roas|cvr|cac|ticket|taxa|rate|m[eé]dia|average|avg|custo\s+por|cost\s+per|por\s+(?:convers|lead|clique|venda|inscri|contato|cadastro)|per\s+(?:conversion|lead|click|sale)|varia|diferen|differen|cresc|ca[ií]u|queda|alta\s+de|aument|redu|subiu|desceu|vs\.?|versus|cerca\s+de|about|around|aprox|estim|proje|previs|forecast|meta\s+de|target|sobra|resta|falta|saldo|left|remaining|fech|ritmo|pace|esperad|expected|teto|limite|cap\b|seria|cairia|ficaria|would|a\s+cada|dividid|divided|vezes|times|configurad|planejad|planned|plano|plan\b|or[çc]amento|budget|l[ií]quid|brut|net\b|gross|somou|added|novo\s+ritmo|at[eé]\s+o\s+fim|contra|against|fica|ficam|stays|\bmais\s*$|\bplus\s*$)/i
 const DERIVED_AFTER =
-  /^\s*(?:\/\s*(?:dia|day|m[eê]s|month)|por\s+(?:dia|m[eê]s|convers|lead|clique|venda)|ao\s+dia|a\s+mais|a\s+menos|de\s+diferen|more|less|higher|lower|per\s+(?:day|month|conversion|lead|click)|a\s+day|cada|each)/i
-const DERIVED_HEADER = /(cpa|cpl|cpc|cpm|cpv|ctr|roas|cvr|cac|taxa|rate|m[eé]dia|avg|average|por\s|per\s|%|var|dif|delta|Δ)/i
+  /^\s*(?:\/\s*(?:dia|day|m[eê]s|month|semana|week)|por\s+(?:dia|semana|m[eê]s|convers|lead|clique|venda|inscri|cadastro)|ao\s+dia|a\s+mais|a\s+menos|de\s+diferen|more|less|higher|lower|per\s+(?:day|week|month|conversion|lead|click)|a\s+day|cada|each|l[ií]quid|brut|do\s+plano|of\s+the\s+plan|previst|planejad|no\s+plano|in\s+the\s+plan)/i
+const DERIVED_HEADER = /(cpa|cpl|cpc|cpm|cpv|ctr|roas|cvr|cac|taxa|rate|m[eé]di[ao]|avg|average|por\s|per\s|%|var|dif|delta|Δ|fech|resta|falta|sobra|proje|ritmo|pace|teto|limite|plano|plan\b|previst|esperad|or[çc]amento|budget|l[ií]quid|brut)/i
+// "81 conversões a R$ 6,52": a cost per, written after what it divides.
+const PER_UNIT_BEFORE = /(convers|lead|clique|click|venda|sale|inscri|cadastr|compra|purchase)\p{L}*\s+(?:a|at|por|de|for)\s*$/iu
+// What joins two numbers of one comparison or range: "de 312 para 440", "entre 612,40 e 612,60", "4,10 a 6,30".
+const JOINER = /^\s*(?:para|a|at[eé]|e|and|to|→|->|–|-|,)\s*(?:R\$|US\$|\$|€)?\s*$/i
+// The columns of a table that copy a metric from the data, where a number must sit in its own row.
+const METRIC_HEADER = /(custo|gasto|investi|spend|cost|clique|click|impress|convers|receita|revenue|compras?|purchases?|leads?|cadastros?|alcance|reach|visualiza|views?)/i
+// A number that is a code or a measure, not a result: a form ID, a version, an error, pixels, days.
+const CODE_BEFORE = /\b(vers[ãa]o|version|v\.?|c[óo]digo|code|erro|error|http|status|porta|port|ids?|idps|n[º°]\.?|n[úu]mero|number|formul[áa]rio|form|recus\w*\s+com|retorn\w*\s+com|fails?\s+with|returns?)\s*[:=]?\s*$/i
+const UNIT_AFTER = /^\s*(?:px|pt|dias?|days?|h\b|hs?\b|horas?|hours?|min|minutos?|minutes?|seg|segundos?|seconds?|km|mi\b|mb|kb|gb|anos?|years?|semanas?|weeks?|meses|months?)/i
 const TOTAL_ROW = /^\s*[*_]*\s*(total|soma|geral|todos|todas|all|sum)\b/i
 
 const SCALE: Record<string, number> = { mil: 1e3, k: 1e3, mi: 1e6, milhão: 1e6, milhões: 1e6, m: 1e6, mm: 1e6, bi: 1e9 }
@@ -208,6 +221,10 @@ export const tokensOf = (answer: string, lang?: Lang): Token[] => {
 
     if (!parsed) continue
 
+    // A code or a measure: a form ID (40123), a version, an HTTP error, 375 px, 6,5 dias.
+    if (!money && !suffixRaw && /^\d{5,}$/.test(digits)) continue
+    if (!money && !suffixRaw && (CODE_BEFORE.test(text.slice(Math.max(0, at - 24), at)) || UNIT_AFTER.test(text.slice(end, end + 12)))) continue
+
     const suffix = suffixRaw.trim().toLowerCase()
     const scale = SCALE[suffix] ?? 1
     const isPercent = suffix === '%'
@@ -222,9 +239,21 @@ export const tokensOf = (answer: string, lang?: Lang): Token[] => {
     const row = t?.rows[rowIdx]
     const col = row ? row.cells.findIndex(([a, b]) => at >= a && at < b) : -1
     const header = t && col >= 0 ? (t.headers[col] ?? '') : ''
+    const previous = out[out.length - 1]
+    const between = previous ? text.slice(previous.end, at) : ''
+    // "de 312 para 440": a before and after, both Claude's own comparison.
+    const opensPair = /\bde\s*(?:R\$|US\$|\$|€)?\s*$/i.test(text.slice(Math.max(lineStart, at - 8), at)) && /^\s*(?:para|a|at[eé]|to)\s/i.test(ctxAfter)
     const isDerived =
+      opensPair ||
+      // The second of a pair or a range, when the first one was a calculation or opened the pair.
+      (previous !== undefined && previous.isDerived && previous.end > lineStart && JOINER.test(between)) ||
+      PER_UNIT_BEFORE.test(ctxBefore) ||
+      // A table row named for a calculation: "Meta PE, o que resta".
+      (row !== undefined && col > 0 && DERIVED_BEFORE.test(row.label)) ||
       suffix === 'x' ||
       isPercent ||
+      // A decimal under 100 with no currency is a rate, an average or a frequency (5,11 per 100 clicks; 1,11).
+      (!money && scale === 1 && parsed.decimals > 0 && Math.abs(parsed.value) < 100) ||
       sign !== '' ||
       DERIVED_BEFORE.test(ctxBefore) ||
       DERIVED_AFTER.test(ctxAfter) ||
@@ -242,7 +271,7 @@ export const tokensOf = (answer: string, lang?: Lang): Token[] => {
       isDerived,
       // A whole count under 100 (3 campaigns, 30 days, 12 clicks) proves nothing either way.
       isSmall: !money && !isPercent && scale === 1 && parsed.decimals === 0 && Math.abs(value) < 100,
-      cell: row && col >= 0 ? { table, row: rowIdx, col, isTotalRow: row.isTotal } : undefined,
+      cell: row && col >= 0 ? { table, row: rowIdx, col, isTotalRow: row.isTotal, label: row.label.replace(/\\\|/g, '|'), isMetric: METRIC_HEADER.test(header) } : undefined,
       context,
     })
   }
@@ -250,10 +279,22 @@ export const tokensOf = (answer: string, lang?: Lang): Token[] => {
   return out
 }
 
-type Bucket = 'found' | 'summed' | 'elsewhere' | 'common' | 'calculated' | 'missing'
+type Bucket = 'found' | 'summed' | 'elsewhere' | 'common' | 'calculated' | 'missing' | 'wrongRow'
 
 /** Checks an answer against the numbers of the media queries and of everything else read. */
-export const checkAnswer = (answer: string, media: number[], other: number[], at: number, lang?: Lang): AnswerCheck => {
+/**
+ * `sums` are the totals of the media responses' rows (rows.ts): a total Claude
+ * added up from the days or campaigns it read is checked against them.
+ */
+export const checkAnswer = (
+  answer: string,
+  media: number[],
+  other: number[],
+  at: number,
+  lang?: Lang,
+  sums: number[] = [],
+  labels: Map<string, number[]> = new Map(),
+): AnswerCheck => {
   const tokens = tokensOf(answer, lang)
   const seen = new Set<string>()
   const unique = tokens.filter(tk => {
@@ -268,7 +309,13 @@ export const checkAnswer = (answer: string, media: number[], other: number[], at
   const plain = (tk: Token): Bucket => {
     if (tk.isSmall) return 'common'
     if (isCommon(media, tk.value, tk.tol)) return 'common'
-    if (isNear(media, tk.value, tk.tol)) return 'found'
+    if (isNear(media, tk.value, tk.tol)) {
+      // In a table, the number of a named row must be in that row: a cost of another campaign is not this one's.
+      const own = tk.cell && tk.cell.isMetric && !tk.cell.isTotalRow && !tk.isDerived && labels.size > 0 ? rowNumbers(labels, tk.cell.label) : undefined
+
+      return own === undefined || isNear(own, tk.value, tk.tol) ? 'found' : 'wrongRow'
+    }
+    if (sums.length > 0 && isNear(sums, tk.value, tk.tol) && !isCommon(sums, tk.value, tk.tol)) return 'summed'
     if (other.length > 0 && isNear(other, tk.value, tk.tol) && !isCommon(other, tk.value, tk.tol)) return 'elsewhere'
 
     return tk.isDerived ? 'calculated' : 'missing'
@@ -298,8 +345,8 @@ export const checkAnswer = (answer: string, media: number[], other: number[], at
 
       const kinds = parts.map(plain)
 
-      if (kinds.every(k => k === 'found')) return 'summed'
-      if (kinds.every(k => k === 'found' || k === 'common' || k === 'elsewhere')) return 'common'
+      if (kinds.every(k => k === 'found' || k === 'summed')) return 'summed'
+      if (kinds.every(k => k === 'found' || k === 'summed' || k === 'common' || k === 'elsewhere')) return 'common'
     }
 
     return undefined
@@ -320,7 +367,7 @@ export const checkAnswer = (answer: string, media: number[], other: number[], at
     else if (bucket === 'elsewhere') result.elsewhere += 1
     else if (bucket === 'common') result.common += 1
     else if (bucket === 'calculated') result.calculated += 1
-    else if (misses.length < MAX_MISSES) misses.push({ text: tk.text, context: tk.context })
+    else if (misses.length < MAX_MISSES) misses.push({ text: tk.text, context: tk.context, ...(bucket === 'wrongRow' ? { isWrongRow: true } : {}) })
     else misses.push({ text: tk.text, context: '' })
   }
 

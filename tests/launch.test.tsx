@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { findBefore, kindOf, managerLink, missingOf, pieceOf, resultOf } from '../hooks/launch'
+import { findBefore, kindOf, liveScope, managerLink, missingOf, pieceOf, resultOf } from '../hooks/launch'
 import { robot } from '../hooks/mascot'
 import { factText, launchAlertText } from '../hooks/plain'
 import type { LaunchPiece } from '../types'
@@ -298,4 +298,45 @@ test('demo launch: sample pieces, the go-live waiting, and what goes live with i
   expect(await has(/! sem UTM/)).toBe(true)
   expect(await has(/^Isto põe no ar e pode começar a gastar$/)).toBe(true)
   await ui.unmount()
+})
+
+test('answers: the status inside a JSON string, and validation errors written as a string', () => {
+  const live = '{"result":"{\\"ad_account_id\\":\\"123456789\\",\\"entity_id\\":\\"120000000000001\\",\\"entity_type\\":\\"campaign\\",\\"status\\":\\"PUBLISHING\\",\\"success\\":null}"}'
+
+  expect(resultOf('activate', live)).toEqual({ id: '120000000000001', result: 'PUBLISHING', errors: 0 })
+
+  const staged = '{"success":true,"entity_id":"120000000000002","is_draft":true,"active_errors":"[{\\"error_summary\\":\\"Budget too low\\"}]"}'
+
+  expect(resultOf('update', staged)).toEqual({ id: '120000000000002', result: 'DRAFT', errors: 1 })
+})
+
+test('go live: the changes staged as drafts go live with it, listed on its card', () => {
+  const base = { platform: 'Meta Ads', at: 0, alerts: [], account: '123456789', state: 'ok' as const }
+  const update = (n: number, id: string, fields: string): LaunchPiece => ({
+    ...base,
+    ...pieceOf(`${META}ads_update_entity`, { ad_account_id: '123456789', entity_id: id, entity_type: 'campaign', fields }, CTX),
+    n,
+    result: 'DRAFT',
+  })
+  const pieces: LaunchPiece[] = [
+    update(1, '120000000000001', '{"lifetime_budget":185781}'),
+    update(2, '120000000000002', '{"end_time":"2026-12-01T02:59:00+0000"}'),
+    update(3, '120000000000009', '{"lifetime_budget":1000}'),
+  ]
+  const go: LaunchPiece = {
+    ...base,
+    ...pieceOf(`${META}ads_activate_entity`, { ad_account_id: '123456789', entity_id: '120000000000001', entity_type: 'campaign', object_ids: ['120000000000001', '120000000000002'] }, CTX),
+    n: 4,
+    state: 'waiting',
+  }
+
+  pieces.push(go)
+
+  const scope = liveScope(go, pieces)
+  const lines = scope.flatMap(x => x.facts.map(f => factText(f, 'pt')?.value))
+
+  // The two staged changes it publishes, not the one on another campaign.
+  expect(scope.map(x => x.piece.n)).toEqual([1, 2])
+  expect(lines).toContain('verba total → R$ 1.857,81')
+  expect(lines).toContain('fim → 1º de dezembro de 2026')
 })

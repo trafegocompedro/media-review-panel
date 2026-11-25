@@ -3,6 +3,7 @@ import type { On } from 'claude-code'
 
 import { checkAnswer, parseWritten, tokensOf } from '../hooks/answer'
 import { isCommon, isInSource, numberIndex } from '../hooks/detect'
+import { rowLabels, rowSums } from '../hooks/rows'
 import { checkDataset } from '../hooks/review'
 
 // A made-up Google Ads answer: five campaigns over thirty days, as GAQL prints it.
@@ -131,11 +132,11 @@ test('answer: each number lands in one bucket, and only the unbacked ones are li
   expect(c.elsewhere).toBe(1)
   // Three CPAs and what is left of the budget.
   expect(c.calculated).toBe(4)
-  // 27, 12 and 39 conversions, 2 campaigns, 30 days.
-  expect(c.common).toBe(5)
+  // 27, 12 and 39 conversions, 2 campaigns. "30 dias" is a measure, not a result: left out.
+  expect(c.common).toBe(4)
   // The one number nothing backs.
   expect(c.missing).toEqual([{ text: 'R$ 3.420', context: '…teve 40.110 impressões e custou R$ 3.420 no período, 2 campanhas em 30 dias.' }])
-  expect(c.total).toBe(19)
+  expect(c.total).toBe(18)
 })
 
 const PANE = {
@@ -240,3 +241,88 @@ test('answer: a turn that read no media data, or a subagent, is not checked', as
   expect(await ui.find({ type: 'Text', text: /^✓ 1 found in the account data$/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('answer: a total Claude added up from the rows it read is checked, not flagged', () => {
+  // Thirty days of two campaigns, as the API lists them; nowhere a total.
+  const rows = []
+
+  for (let d = 1; d <= 30; d++) {
+    for (const [name, cost] of [['Shop', 12.34 + d], ['Store', 20.05 + d / 10]] as const) {
+      rows.push({ campaign: { name }, segments: { date: `2026-10-${String(d).padStart(2, '0')}` }, metrics: { costMicros: String(Math.round(cost * 1e6)) } })
+    }
+  }
+
+  const source = JSON.stringify({ results: rows })
+  const shop = rows.filter(r => r.campaign.name === 'Shop').reduce((a, r) => a + Number(r.metrics.costMicros) / 1e6, 0)
+  const all = rows.reduce((a, r) => a + Number(r.metrics.costMicros) / 1e6, 0)
+  const money = (v: number) => `R$ ${v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`
+  const answer = `Em outubro a conta gastou ${money(all)}. A Shop sozinha gastou ${money(shop)}. Uma conta que não existe: ${money(all + 77.7)}.`
+  const c = checkAnswer(answer, numberIndex(source), [], 0, 'pt', rowSums(source))
+
+  expect(c.summed).toBe(2)
+  expect(c.missing.map(m => m.text)).toEqual([money(all + 77.7)])
+})
+
+test("answer: Claude's own arithmetic is a calculation, and codes and measures are not claims", () => {
+  const source = '{"data":[{"spend":"1234.50","impressions":"98000"}]}'
+  const answer = [
+    'A Loja Norte fecha em R$ 1.234,50. Resta R$ 765,40 do plano e o novo ritmo é de R$ 42,10 por dia.',
+    'Cadastros a cada 100 cliques: 5,11 antes, 0,35 depois. Frequência 1,11.',
+    'Formulário idPs 40123 e 40456, versão 87 do Tag Manager, erro 403, testado com 375 px.',
+    'Intake 2027.1 contra 2026.1.',
+  ].join('\n')
+  const c = checkAnswer(answer, numberIndex(source), [], 0, 'pt')
+
+  expect(c.found).toBe(1)
+  expect(c.missing).toEqual([])
+  // R$ 765,40, R$ 42,10, "a cada 100", 5,11, 0,35, 1,11 are Claude's own.
+  expect(c.calculated).toBe(6)
+  // The IDs, the version, the error, the pixels and the intakes are not counted at all.
+  expect(c.total).toBe(7)
+})
+
+test('answer: what Claude said before, or read outside the ad data, is not a new claim', () => {
+  const c = checkAnswer('A lista do CRM tem 1.006 inscritos.', numberIndex('{"data":[{"spend":"10.00"}]}'), numberIndex('Resposta anterior: 1.006 inscritos na lista.'), 0, 'pt')
+
+  expect(c.elsewhere).toBe(1)
+  expect(c.missing).toEqual([])
+})
+
+test('answer: in a table, a cost of another campaign written in this one\'s row is flagged', () => {
+  const source = JSON.stringify({
+    results: [
+      { campaign: { name: 'Pesquisa | Marca' }, metrics: { costMicros: '1234560000', clicks: '512' } },
+      { campaign: { name: 'PMax | Catálogo' }, metrics: { costMicros: '987650000', clicks: '301' } },
+    ],
+  })
+  const table = (marca: string) =>
+    ['| Campanha | Custo | Cliques |', '|---|---|---|', `| Pesquisa \\| Marca | ${marca} | 512 |`, '| PMax \\| Catálogo | R$ 987,65 | 301 |'].join('\n')
+  const right = checkAnswer(table('R$ 1.234,56'), numberIndex(source), [], 0, 'pt', rowSums(source), rowLabels(source))
+  const swapped = checkAnswer(table('R$ 987,65'), numberIndex(source), [], 0, 'pt', rowSums(source), rowLabels(source))
+
+  expect(right.missing).toEqual([])
+  expect(swapped.missing).toEqual([{ text: 'R$ 987,65', context: 'Pesquisa | Marca · Custo', isWrongRow: true }])
+})
+
+test('answer: comparisons, ranges and costs per are read as Claude wrote them', () => {
+  const source = '{"data":[{"spend":"9999.99"}]}'
+  const answer = [
+    'A verba subiu 41%, de R$ 312 para R$ 440 por dia, e os pedidos caíram de 118 para 96.',
+    'As três fecham entre R$ 612,40 e R$ 612,60.',
+    'Ela trouxe 81,0 conversões a R$ 6,52, contra R$ 6,18 na outra região.',
+    'O Google recusa com 403.',
+  ].join('\n')
+  const c = checkAnswer(answer, numberIndex(source), [], 0, 'pt')
+
+  expect(c.missing).toEqual([])
+})
+
+test('answer: the row check only applies to columns that copy a metric', () => {
+  const source = JSON.stringify({ data: [{ campaign_name: 'Loja Norte | Leads', spend: '512.30' }, { campaign_name: 'Loja Sul | Leads', spend: '8.00' }] })
+  // "Agora" is Claude's new budget, not a metric of the data: no row check there.
+  const answer = ['| Campanha | Antes | Agora |', '|---|---|---|', '| Loja Norte | R$ 7,00 | R$ 8,00 |'].join('\n')
+  const c = checkAnswer(answer, numberIndex(source), [], 0, 'pt', rowSums(source), rowLabels(source))
+
+  expect(c.missing.filter(m => m.isWrongRow)).toEqual([])
+})
+
