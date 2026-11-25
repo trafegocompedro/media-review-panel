@@ -19,7 +19,7 @@ const ANSWER_EN = [
   '| SAMPLE \\| Search \\| Generic | R$ 2,210.65 | 44 | R$ 50.24 |',
   '| Total | R$ 5,331.05 | 185 | R$ 28.82 |',
   '',
-  'The PMax campaign cost R$ 4,410.75 and brought 118 conversions. The Meta remarketing campaign cost R$ 1,890.00 over 31 days.',
+  'The PMax campaign cost R$ 4,410.75 and brought 118 conversions. The Meta remarketing campaign cost R$ 1,893.47 over 31 days.',
 ].join('\n')
 const ANSWER_PT = [
   'EXEMPLO. Em outubro, as campanhas de Pesquisa do Google:',
@@ -30,7 +30,7 @@ const ANSWER_PT = [
   '| EXEMPLO \\| Pesquisa \\| Genérica | R$ 2.210,65 | 44 | R$ 50,24 |',
   '| Total | R$ 5.331,05 | 185 | R$ 28,82 |',
   '',
-  'A PMax custou R$ 4.410,75 e trouxe 118 conversões. A campanha de remarketing da Meta custou R$ 1.890,00 em 31 dias.',
+  'A PMax custou R$ 4.410,75 e trouxe 118 conversões. A campanha de remarketing da Meta custou R$ 1.893,47 em 31 dias.',
 ].join('\n')
 
 const rand = (seed: number) => {

@@ -1746,6 +1746,10 @@ export const register: Register = (on, options) => {
       if (ans.calculated > 0) out.push(line(t.ansCalculated(ans.calculated), C.muted))
       if (ans.common > 0) out.push(line(t.ansCommon(ans.common), C.muted))
 
+      const unseen = ans.unseen ?? []
+
+      if (unseen.length > 0) out.push(line(t.ansUnseen(unseen.length), C.muted))
+
       if (ans.missing.length > 0) {
         const shown = ans.missing.slice(0, 6)
 
@@ -1763,6 +1767,24 @@ export const register: Register = (on, options) => {
               </Text>
             ))}
             {ans.missing.length > shown.length ? muteDim(t.ansMore(ans.missing.length - shown.length)) : null}
+          </Box>,
+        )
+      }
+      // Round values or unseen sources: listed quietly, so a person can still ask about them.
+      if (unseen.length > 0) {
+        const shown = unseen.slice(0, 4)
+
+        out.push(
+          <Box flexDirection="column" paddingX={1}>
+            <Text size="caption" weight="semibold" color={C.muted}>
+              {t.ansUnseenHead}
+            </Text>
+            {shown.map(m => (
+              <Text size="caption" color={C.muted}>
+                {`○ ${m.text}${m.context ? `  ${m.context}` : ''}`}
+              </Text>
+            ))}
+            {unseen.length > shown.length ? muteDim(t.ansMore(unseen.length - shown.length)) : null}
           </Box>,
         )
       }

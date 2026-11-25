@@ -73,7 +73,16 @@ export type AnswerCheck = {
   common: number
   /** Not found, and written as a rate, an average, a cost per or a difference. */
   calculated: number
+  /**
+   * Not found and precise (cents, four digits or more, or in another row): it
+   * rarely shows up by chance, so it is worth a look.
+   */
   missing: AnswerMiss[]
+  /**
+   * Not found but round (R$ 5.508, 869, 12 mil): most likely from a source the
+   * panel did not see, or rounded. Listed, not raised as an alert.
+   */
+  unseen?: AnswerMiss[]
 }
 
 export type Dataset = {

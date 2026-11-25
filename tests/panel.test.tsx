@@ -384,7 +384,7 @@ test('plain alerts: the most serious first, each with a next step', () => {
 
   // What reaches a client leads: the number of the answer that nothing backs.
   expect(alerts[0]?.title).toBe('1 número da resposta do Claude não está nos dados da conta')
-  expect(alerts[0]?.body).toMatch(/^R\$ 1\.890,00 \(…de remarketing da Meta custou R\$ 1\.890,00 em 31 dias\.\)/)
+  expect(alerts[0]?.body).toMatch(/^R\$ 1\.893,47 \(…de remarketing da Meta custou R\$ 1\.893,47 em 31 dias\.\)/)
   expect(alerts[1]?.title).toMatch(/não está nos dados da conta/)
   expect(alerts[1]?.body).toMatch(/exemplo tênis de corrida/)
   // The list that came back in part is a warning, so it comes before the empty query.

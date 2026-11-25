@@ -121,7 +121,7 @@ test('answer: each number lands in one bucket, and only the unbacked ones are li
     '| **Total** | **R$ 2.222,21** | 813 | 39 | R$ 56,98 |',
     '',
     'O CTR da Shop ficou em 3,36%. A verba do plano é R$ 4.000 e ainda restam R$ 1.777,79.',
-    'A PMax teve 40.110 impressões e custou R$ 3.420 no período, 2 campanhas em 30 dias.',
+    'A PMax teve 40.110 impressões e custou R$ 3.427,18 no período, 2 campanhas em 30 dias. Vale lembrar a verba de R$ 3.500.',
   ].join('\n')
   const c = checkAnswer(answer, numberIndex(source), numberIndex(plan), 0, 'pt')
 
@@ -135,8 +135,10 @@ test('answer: each number lands in one bucket, and only the unbacked ones are li
   // 27, 12 and 39 conversions, 2 campaigns. "30 dias" is a measure, not a result: left out.
   expect(c.common).toBe(4)
   // The one number nothing backs.
-  expect(c.missing).toEqual([{ text: 'R$ 3.420', context: '…teve 40.110 impressões e custou R$ 3.420 no período, 2 campanhas em 30 dias.' }])
-  expect(c.total).toBe(18)
+  expect(c.missing).toEqual([{ text: 'R$ 3.427,18', context: '…teve 40.110 impressões e custou R$ 3.427,18 no período, 2 campanhas em 30…' }])
+  // A round value from somewhere unseen is listed quietly, not raised.
+  expect(c.unseen).toEqual([{ text: 'R$ 3.500', context: '…30 dias. Vale lembrar a verba de R$ 3.500.' }])
+  expect(c.total).toBe(19)
 })
 
 const PANE = {
@@ -183,7 +185,7 @@ const turnEnd = (answer: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 })
 
-const ANSWER = 'A Brand investiu R$ 1.234,56 e teve 15.230 impressões. A Prospecting custou R$ 980,10. A verba é R$ 3.000. No total, R$ 2.500,00 em outubro.'
+const ANSWER = 'A Brand investiu R$ 1.234,56 e teve 15.230 impressões. A Prospecting custou R$ 980,10. A verba é R$ 3.000. No total, R$ 2.517,43 em outubro.'
 
 for (const surface of ['desktop', 'terminal'] as const) {
   test(`answer on ${surface}: a number nothing backs is shown, with what to do, in both views`, async ($, on) => {
@@ -202,7 +204,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
 
     expect(await has(/^Na última resposta do Claude$/)).toBe(true)
     expect(await has(/^1 número da resposta do Claude não está nos dados da conta$/)).toBe(true)
-    expect(await has(/R\$ 2\.500,00 \(…em outubro\.|R\$ 2\.500,00 \(/)).toBe(true)
+    expect(await has(/R\$ 2\.517,43 \(…em outubro\.|R\$ 2\.517,43 \(/)).toBe(true)
     expect(await has(/^✓ 3 encontrados nos dados da conta$/)).toBe(true)
     expect(await has(/^1 em outro arquivo que o Claude leu ou na sua mensagem$/)).toBe(true)
     expect(await has(/^! 1 não está nos dados da conta que o painel viu$/)).toBe(true)
@@ -212,7 +214,7 @@ for (const surface of ['desktop', 'terminal'] as const) {
 
     const full = await $.ui.mount({ ...PANE, surface })
 
-    expect(await full.find({ type: 'Text', text: /Última resposta: 1 número não está nos dados da conta que o painel viu: R\$ 2\.500,00/ })).toBeDefined()
+    expect(await full.find({ type: 'Text', text: /Última resposta: 1 número não está nos dados da conta que o painel viu: R\$ 2\.517,43/ })).toBeDefined()
     await full.unmount()
   })
 }
@@ -326,3 +328,11 @@ test('answer: the row check only applies to columns that copy a metric', () => {
   expect(c.missing.filter(m => m.isWrongRow)).toEqual([])
 })
 
+
+test('answer: a precise number not found raises the alert; a round one is listed quietly', () => {
+  const source = '{"data":[{"spend":"17.31"}]}'
+  const c = checkAnswer('Gastou R$ 2.425,00 e R$ 1.234,56. A verba é R$ 3.000, ou R$ 1.000,00, e 869 leads no CRM. Foram 15.230 impressões.', numberIndex(source), [], 0, 'pt')
+
+  expect(c.missing.map(m => m.text)).toEqual(['R$ 2.425,00', 'R$ 1.234,56', '15.230'])
+  expect((c.unseen ?? []).map(m => m.text)).toEqual(['R$ 3.000', 'R$ 1.000,00', '869'])
+})

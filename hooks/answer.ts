@@ -25,6 +25,8 @@ type Token = {
   end: number
   isDerived: boolean
   isSmall: boolean
+  /** Written with cents, four digits or more, not rounded: it rarely matches by chance. */
+  isPrecise: boolean
   /** Where it sits in a table of the answer, to add up a column. */
   cell?: { table: number; row: number; col: number; isTotalRow: boolean; label: string; isMetric: boolean }
   context: string
@@ -195,6 +197,16 @@ const snippet = (text: string, from: number, to: number, lineStart: number, line
   return tidy(s)
 }
 
+/** R$ 1.000,00 or R$ 50,00: cents of zero on a round amount. */
+const isRoundMoney = (v: number): boolean => Number.isInteger(v) && (Math.abs(v) < 100 || v % 100 === 0)
+
+/** 15.230 or 1.612: a count of four digits or more that does not end in 00. */
+const isPreciseCount = (digits: string): boolean => {
+  const d = digits.replace(/\D/g, '')
+
+  return d.length >= 4 && !/00$/.test(d)
+}
+
 /** Every number of an answer that reads as a claim, with what surrounds it. */
 export const tokensOf = (answer: string, lang?: Lang): Token[] => {
   // The answer's own language decides 1.234 (pt: a thousand) from 1.234 (en: one point two).
@@ -271,6 +283,9 @@ export const tokensOf = (answer: string, lang?: Lang): Token[] => {
       isDerived,
       // A whole count under 100 (3 campaigns, 30 days, 12 clicks) proves nothing either way.
       isSmall: !money && !isPercent && scale === 1 && parsed.decimals === 0 && Math.abs(value) < 100,
+      // R$ 1.234,56, R$ 2.425,00 or 15.230: precise. R$ 5.508, R$ 1.000,00, R$ 50,00, 869 or 12 mil: round,
+      // or from somewhere unseen. Whoever writes the cents gives an exact value, unless the rest is round too.
+      isPrecise: scale === 1 && (money !== '' ? parsed.decimals >= 2 && !isRoundMoney(parsed.value) : parsed.decimals === 0 && isPreciseCount(digits)),
       cell: row && col >= 0 ? { table, row: rowIdx, col, isTotalRow: row.isTotal, label: row.label.replace(/\\\|/g, '|'), isMetric: METRIC_HEADER.test(header) } : undefined,
       context,
     })
@@ -352,8 +367,9 @@ export const checkAnswer = (
     return undefined
   }
 
-  const result: AnswerCheck = { at, total: unique.length, found: 0, summed: 0, elsewhere: 0, common: 0, calculated: 0, missing: [] }
+  const result: AnswerCheck = { at, total: unique.length, found: 0, summed: 0, elsewhere: 0, common: 0, calculated: 0, missing: [], unseen: [] }
   const misses: AnswerMiss[] = []
+  const unseen: AnswerMiss[] = []
 
   for (const tk of unique) {
     let bucket = plain(tk)
@@ -367,11 +383,14 @@ export const checkAnswer = (
     else if (bucket === 'elsewhere') result.elsewhere += 1
     else if (bucket === 'common') result.common += 1
     else if (bucket === 'calculated') result.calculated += 1
-    else if (misses.length < MAX_MISSES) misses.push({ text: tk.text, context: tk.context, ...(bucket === 'wrongRow' ? { isWrongRow: true } : {}) })
-    else misses.push({ text: tk.text, context: '' })
+    else if (bucket === 'wrongRow' || tk.isPrecise) {
+      // In another row, or precise: worth a look.
+      misses.push({ text: tk.text, context: misses.length < MAX_MISSES ? tk.context : '', ...(bucket === 'wrongRow' ? { isWrongRow: true } : {}) })
+    } else unseen.push({ text: tk.text, context: unseen.length < MAX_MISSES ? tk.context : '' })
   }
 
   result.missing = misses
+  result.unseen = unseen
 
   return result
 }

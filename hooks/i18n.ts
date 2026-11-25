@@ -230,6 +230,9 @@ const EN = {
   ansMissing: (n: number) => `! ${n} not in the account data the panel saw`,
   ansMissingHead: 'Not in the account data:',
   ansWrongRow: 'the number exists, but in another row',
+  ansUnseen: (n: number) =>
+    n === 1 ? '1 could not be checked: a round value, or from a source the panel did not see' : `${n} could not be checked: round values, or from a source the panel did not see`,
+  ansUnseenHead: 'Not checked:',
   ansMore: (n: number) => `+ ${n} more`,
   ansNone: 'No number to check in the last answer.',
   ansExplain: 'Each number Claude wrote is looked up in the account data Claude received in this review. Dates, IDs and code are left out.',
@@ -604,6 +607,9 @@ const PT: Strings = {
   ansMissing: n => `! ${n} não ${n === 1 ? 'está' : 'estão'} nos dados da conta que o painel viu`,
   ansMissingHead: 'Não estão nos dados da conta:',
   ansWrongRow: 'o número existe, mas em outra linha',
+  ansUnseen: n =>
+    n === 1 ? '1 não pôde ser conferido: valor redondo, ou de uma fonte que o painel não viu' : `${n} não puderam ser conferidos: valores redondos, ou de uma fonte que o painel não viu`,
+  ansUnseenHead: 'Sem conferência:',
   ansMore: n => `+ ${n} outros`,
   ansNone: 'Nenhum número para conferir na última resposta.',
   ansExplain: 'Cada número que o Claude escreveu é procurado nos dados da conta que ele recebeu nesta revisão. Datas, IDs e código ficam de fora.',
