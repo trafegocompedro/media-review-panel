@@ -1,6 +1,6 @@
 {
   "name": "media-review-panel",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Side panel that shows what Claude reads while it analyzes paid media (Google, Meta, TikTok, LinkedIn Ads): each query the panel recognizes, accounts, steps, data level, dates, charts checked against the responses, and a log of each call it logged. Read-only. Made by Tráfego Com Pedro.",
   "author": {
     "name": "Tráfego Com Pedro",
@@ -27,6 +27,17 @@
         "auto",
         "en",
         "pt"
+      ]
+    },
+    "theme": {
+      "type": "string",
+      "title": "Panel theme",
+      "description": "auto follows the app's light or dark theme; light and dark force one",
+      "default": "auto",
+      "options": [
+        "auto",
+        "light",
+        "dark"
       ]
     },
     "mascot": {

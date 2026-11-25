@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { ElementConstructor, EngineInterface, Register, RenderElement, SvgProps, ToolCallResult } from 'claude-code'
 
 import type { CallLog, CallStatus, Dataset, Lang, Mood, Review, StepStatus, ViewMode } from '../types'
-import { C, barChart, columnChart, fmt, lineChart, sparkline, textBar } from './charts'
+import { C, setThemeMode, barChart, columnChart, fmt, lineChart, sparkline, textBar } from './charts'
 import { buildDemo } from './demo'
 import { digestOf, unitOf } from './digest'
 import type { Digest, Metric, Total } from './digest'
@@ -243,7 +243,7 @@ async function loadDemo($: EngineInterface) {
 }
 
 async function openPane($: EngineInterface) {
-  return $.ui.open({ id: PANE, title: 'Media Review', backgroundColor: C.bg, columns: 72 })
+  return $.ui.open({ id: PANE, title: 'Media Review', ...(C.bg ? { backgroundColor: C.bg } : {}), columns: 72 })
 }
 
 async function maybeOpen($: EngineInterface, r: Review | null, autoOpen: boolean) {
@@ -314,6 +314,7 @@ async function answerReport($: EngineInterface, input: Record<string, unknown>, 
 
 export const register: Register = (on, options) => {
   const autoOpen = options.autoOpen !== 'off'
+  setThemeMode(options.theme === 'light' || options.theme === 'dark' ? options.theme : 'auto')
   const langOption = options.language === 'en' || options.language === 'pt' ? options.language : 'auto'
   // Your own data scripts, from your local settings only (never in the mod's files).
   const scripts = parseScripts(options.extraScripts)

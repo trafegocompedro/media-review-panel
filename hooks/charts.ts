@@ -1,6 +1,34 @@
 // Flat SVG charts in the panel's palette: one accent, no gradients, no glow.
 
-export const C = {
+export type ThemeMode = 'auto' | 'light' | 'dark'
+
+type Palette = {
+  bg: string | undefined
+  card: string | undefined
+  border: string
+  border2: string
+  grid: string
+  text: string
+  bright: string
+  muted: string
+  dim: string
+  accent: string
+  fill: string
+  onAccent: string
+  ok: string
+  warn: string
+  err: string
+  tcp: string
+  onTcp: string
+  okBg: string
+  okText: string
+  warnBg: string
+  warnText: string
+  infoText: string
+}
+
+// Terminal-style dark palette (the original look).
+const DARK: Palette = {
   bg: '#181818',
   card: '#1f1f1f',
   border: '#2b2b2b',
@@ -26,6 +54,93 @@ export const C = {
   warnBg: '#3a2e10',
   warnText: '#f0c75e',
   infoText: '#7fb6f0',
+}
+
+// Light palette: every text color is at least 4.5:1 on its own card.
+const LIGHT: Palette = {
+  bg: '#ffffff',
+  card: '#f6f8fa',
+  border: '#d8dee4',
+  border2: '#b6bfc8',
+  grid: '#e3e8ed',
+  text: '#24292f',
+  bright: '#0b0f14',
+  muted: '#4b555f',
+  dim: '#586069',
+  accent: '#0969da',
+  fill: '#0e639c',
+  onAccent: '#ffffff',
+  ok: '#1a7f37',
+  warn: '#8a5a00',
+  err: '#cf222e',
+  tcp: '#6a9f1c',
+  onTcp: '#0d1f05',
+  okBg: '#dcf2c8',
+  okText: '#2b5a0b',
+  warnBg: '#fbecc2',
+  warnText: '#7a4f00',
+  infoText: '#0550ae',
+}
+
+// Follows the app: theme keys for text and borders, and no fill of its own, so the
+// panel is light in a light app and dark in a dark one. The badge pairs below carry
+// their own background and text, so they read on both.
+const AUTO: Palette = {
+  ...LIGHT,
+  bg: undefined,
+  card: undefined,
+  border: 'inactive',
+  border2: 'inactive',
+  text: 'text',
+  bright: 'text',
+  muted: 'subtle',
+  dim: 'inactive',
+  accent: 'suggestion',
+  ok: 'success',
+  warn: 'warning',
+  err: 'error',
+  infoText: 'suggestion',
+}
+
+let mode: ThemeMode = 'auto'
+
+/** The palette every drawing reads. Mutated in place so imports see the change. */
+export const C: Palette = { ...AUTO }
+
+export const setThemeMode = (m: ThemeMode): void => {
+  mode = m
+  Object.assign(C, m === 'dark' ? DARK : m === 'light' ? LIGHT : AUTO)
+}
+
+const withPalette = <T>(p: Palette, build: () => T): T => {
+  const saved = { ...C }
+
+  Object.assign(C, p)
+
+  try {
+    return build()
+  } finally {
+    Object.assign(C, saved)
+  }
+}
+
+/**
+ * Draws an SVG in the palette of the chosen mode. In auto mode it draws both a light
+ * and a dark version and lets the SVG show the one that matches the system.
+ */
+const themed = (build: () => string): string => {
+  if (mode !== 'auto') return withPalette(mode === 'dark' ? DARK : LIGHT, build)
+
+  const split = (s: string) => /^(<svg[^>]*>)([\s\S]*)<\/svg>$/.exec(s)
+  const l = split(withPalette(LIGHT, build))
+  const d = split(withPalette(DARK, build))
+
+  if (!l || !d) return withPalette(DARK, build)
+
+  return (
+    `${l[1]}<style>.tl{display:inline}.td{display:none}@media (prefers-color-scheme:dark){.tl{display:none}.td{display:inline}}</style>` +
+    `<g class="tl">${l[2]}</g><g class="td">${d[2]}</g></svg>`
+  )
 }
 
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
@@ -98,7 +213,7 @@ type Series = {
 }
 
 /** A line over time; a missing point stays a gap, never drawn in. */
-export const lineChart = ({ labels, values, name, tip, width }: Series): string => {
+const lineChartRaw = ({ labels, values, name, tip, width }: Series): string => {
   const W = Math.max(240, Math.round(width))
   const H = 132
   const L = 44
@@ -177,7 +292,7 @@ export const lineChart = ({ labels, values, name, tip, width }: Series): string 
 }
 
 /** Horizontal bars, largest first, labels on the left. */
-export const barChart = ({ labels, values, name, tip, width }: Series): string => {
+const barChartRaw = ({ labels, values, name, tip, width }: Series): string => {
   const W = Math.max(240, Math.round(width))
   const rowH = 20
   const H = labels.length * rowH + 8
@@ -254,7 +369,7 @@ type Columns = {
 }
 
 /** Vertical bars, one per day, with a dot above the days that brought a result. */
-export const columnChart = ({ labels, values, marks, name, markName, tip, short, width }: Columns): string => {
+const columnChartRaw = ({ labels, values, marks, name, markName, tip, short, width }: Columns): string => {
   const W = Math.max(240, Math.round(width))
   const H = 150
   const L = 44
@@ -315,3 +430,7 @@ export const columnChart = ({ labels, values, marks, name, markName, tip, short,
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${SANS}"><rect width="${W}" height="${H}" fill="${C.card}"/>${parts.join('')}</svg>`
 }
+
+export const lineChart = (a: Parameters<typeof lineChartRaw>[0]): string => themed(() => lineChartRaw(a))
+export const barChart = (a: Parameters<typeof barChartRaw>[0]): string => themed(() => barChartRaw(a))
+export const columnChart = (a: Parameters<typeof columnChartRaw>[0]): string => themed(() => columnChartRaw(a))

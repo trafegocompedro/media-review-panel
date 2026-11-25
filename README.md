@@ -62,7 +62,7 @@ claude plugin install media-review-panel --marketplace trafegocompedro/media-rev
 
 Then type `/media-review demo` to see the panel with sample data.
 
-**Settings** (optional): *Panel language* (auto, en, pt), *Mascot* (on, off), *Open the panel automatically* (on, off) and *Your own data scripts* (names of your scripts that read ad data, so the panel recognizes them; kept in your local Claude Code settings).
+**Settings** (optional): *Panel language* (auto, en, pt), *Panel theme* (auto follows the app's light or dark theme; light or dark force one), *Mascot* (on, off), *Open the panel automatically* (on, off) and *Your own data scripts* (names of your scripts that read ad data, so the panel recognizes them; kept in your local Claude Code settings).
 
 **After installing:** turn on auto-update (see [Updates](#updates)). Without it, you stay on the version installed today.
 
@@ -152,7 +152,7 @@ claude plugin install media-review-panel --marketplace trafegocompedro/media-rev
 
 Depois digite `/media-review demo` para ver o painel com dados de exemplo.
 
-**Configurações** (opcionais): *Panel language* (auto, en, pt), *Mascot* (on, off), *Open the panel automatically* (on, off) e *Your own data scripts* (nomes dos seus scripts que leem dados de anúncios, para o painel reconhecer; ficam nas configurações locais do Claude Code).
+**Configurações** (opcionais): *Panel language* (auto, en, pt), *Panel theme* (auto segue o tema claro ou escuro do app; light ou dark fixam um), *Mascot* (on, off), *Open the panel automatically* (on, off) e *Your own data scripts* (nomes dos seus scripts que leem dados de anúncios, para o painel reconhecer; ficam nas configurações locais do Claude Code).
 
 **Depois de instalar:** ligue a atualização automática (veja [Como receber as atualizações](#como-receber-as-atualizações)). Sem ela, você fica na versão instalada hoje.
 
