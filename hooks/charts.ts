@@ -239,3 +239,79 @@ export const textBar = (v: number, max: number, width: number): string => {
 
   return '█'.repeat(n) + '·'.repeat(Math.max(0, width - n))
 }
+
+type Columns = {
+  labels: string[]
+  values: (number | null)[]
+  /** A count per column (conversions that day): drawn as a dot above the bar. */
+  marks: number[]
+  name: string
+  markName: string
+  tip: (v: number) => string
+  /** How a label reads under the axis: 12/11 or 11/12. */
+  short: (label: string) => string
+  width: number
+}
+
+/** Vertical bars, one per day, with a dot above the days that brought a result. */
+export const columnChart = ({ labels, values, marks, name, markName, tip, short, width }: Columns): string => {
+  const W = Math.max(240, Math.round(width))
+  const H = 150
+  const L = 44
+  const R = 10
+  const T = 26
+  const B = 22
+  const n = Math.max(1, values.length)
+  const hi = niceMax(Math.max(0, ...values.map(v => v ?? 0)))
+  const slot = (W - L - R) / n
+  const barW = Math.max(2, Math.min(28, slot * 0.68))
+  const y = (v: number) => T + (H - T - B) * (1 - v / hi)
+  const parts: string[] = []
+
+  for (let g = 0; g <= 2; g += 1) {
+    const v = (hi * g) / 2
+    const gy = y(v)
+    parts.push(`<line x1="${L}" x2="${W - R}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}" stroke="${C.grid}" stroke-width="1"/>`)
+    parts.push(
+      `<text x="${L - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end" font-family="${MONO}" font-size="10" fill="${C.dim}">${esc(compact(v))}</text>`,
+    )
+  }
+
+  values.forEach((v, i) => {
+    const cx = L + slot * (i + 0.5)
+    const mark = marks[i] ?? 0
+    const what = `${labels[i] ?? ''} · ${name}: ${v === null ? '—' : tip(v)}${mark > 0 ? ` · ${markName}: ${mark}` : ''}`
+
+    parts.push(`<g><title>${esc(what)}</title><rect x="${(cx - slot / 2).toFixed(1)}" y="0" width="${slot.toFixed(1)}" height="${H}" fill="transparent"/>`)
+
+    if (v !== null && v > 0) {
+      const top = y(v)
+      const h = H - B - top
+      const r = Math.min(2, barW / 2, h / 2)
+      parts.push(
+        `<path d="M${(cx - barW / 2).toFixed(1)} ${H - B}v-${(h - r).toFixed(1)}a${r} ${r} 0 0 1 ${r} -${r}h${(barW - 2 * r).toFixed(1)}a${r} ${r} 0 0 1 ${r} ${r}v${(h - r).toFixed(1)}z" fill="${C.accent}"/>`,
+      )
+    }
+    if (mark > 0) {
+      const top = v !== null && v > 0 ? y(v) : H - B
+      parts.push(`<circle cx="${cx.toFixed(1)}" cy="${(top - 7).toFixed(1)}" r="3.5" fill="${C.tcp}"/>`)
+      // More than one that day: the count above the dot, so 4 doesn't read as 1.
+      if (mark > 1) {
+        parts.push(
+          `<text x="${cx.toFixed(1)}" y="${(top - 14).toFixed(1)}" text-anchor="middle" font-family="${MONO}" font-size="10" fill="${C.okText}">${esc(compact(Math.round(mark * 10) / 10))}</text>`,
+        )
+      }
+    }
+    parts.push('</g>')
+  })
+
+  const ticks = n <= 1 ? [0] : n <= 4 ? [...Array(n).keys()] : [0, Math.floor((n - 1) / 2), n - 1]
+
+  for (const i of ticks) {
+    parts.push(
+      `<text x="${(L + slot * (i + 0.5)).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-family="${MONO}" font-size="10" fill="${C.dim}">${esc(short(labels[i] ?? ''))}</text>`,
+    )
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${SANS}"><rect width="${W}" height="${H}" fill="${C.card}"/>${parts.join('')}</svg>`
+}

@@ -2,8 +2,10 @@ import { atom, read, update } from 'claude-code'
 import type { ElementConstructor, EngineInterface, Register, RenderElement, SvgProps, ToolCallResult } from 'claude-code'
 
 import type { CallLog, CallStatus, Dataset, Lang, Mood, Review, StepStatus, ViewMode } from '../types'
-import { C, barChart, fmt, lineChart, sparkline, textBar } from './charts'
+import { C, barChart, columnChart, fmt, lineChart, sparkline, textBar } from './charts'
 import { buildDemo } from './demo'
+import { digestOf, unitOf } from './digest'
+import type { Digest, Metric, Total } from './digest'
 import { OWN_TOOL, accountsIn, classify, classifyOutput, extract, parseScripts, platformOf, readResult, savedPath, toNumber } from './detect'
 import { LEVELS, guessLang, levelName, mascotText, strings } from './i18n'
 import type { MascotKey } from './i18n'
@@ -1557,7 +1559,156 @@ export const register: Register = (on, options) => {
 
       return out
     }
+    // A long table, read for the person: the period's totals, a chart per day,
+    // one line per campaign, or the top items of a list. The table stays one press away.
+    const metricName = (dg: Digest, m: Metric): string =>
+      m === 'cpa' ? t.m_cpa : m === 'cpc' ? t.m_cpc : m === 'roas' ? t.m_roas : plainColumn(dg.names[m] ?? m, lg).toLowerCase()
+    const metricValue = (m: Metric, v: number, cur?: string): string =>
+      unitOf(m) === 'currency' ? fmt(v, lg, 'currency', cur) : fmt(Math.round(v * 100) / 100, lg, unitOf(m) === 'count' ? 'count' : undefined)
+    // "106 cliques", "1 conversão", "R$ 485,05", "R$ 23,97 por conversão".
+    const metricText = (dg: Digest, x: Total, cur?: string): string => {
+      const value = metricValue(x.metric, x.value, cur)
+      const name = metricName(dg, x.metric)
+
+      if (x.metric === 'cost' || x.metric === 'revenue') return value
+      if (unitOf(x.metric) === 'count') return `${value} ${x.value === 1 ? t.singular(name) : name}`
+
+      return `${value} ${name}`
+    }
+    const tableToggle = (ds: Dataset) => (
+      <Button
+        key={`tbl-${ds.id}`}
+        plain
+        dimColor
+        onPress={() => update($, openTables, cur => (cur.includes(ds.id) ? cur.filter(x => x !== ds.id) : [...cur, ds.id]))}
+      >
+        {tables.includes(ds.id) ? t.hideFullTable : t.fullTable(ds.totalRows)}
+      </Button>
+    )
+    const digestBody = (ds: Dataset, dg: Digest): (RenderElement | null)[] => {
+      const cur = ds.currency ?? rv?.currency
+
+      if (dg.kind === 'ranking') {
+        const max = Math.max(0, ...dg.top.map(r => r.value))
+        const groupName = dg.groupColumn ? plainColumn(dg.groupColumn, lg).toLowerCase() : ''
+        const rest = dg.rest
+        const restParts = rest
+          ? [
+              t.others(rest.count, rest.each !== undefined ? metricText(dg, { metric: dg.metric, value: rest.each }, cur) : undefined),
+              rest.each === undefined ? metricText(dg, { metric: dg.metric, value: rest.value }, cur) : undefined,
+              rest.cost !== undefined ? fmt(rest.cost, lg, 'currency', cur) : undefined,
+            ].filter((x): x is string => x !== undefined)
+          : []
+
+        return [
+          <Box flexDirection="column" gap={1}>
+            {dg.top.map(r => (
+              <Box flexDirection="column">
+                <Text color={C.bright}>
+                  {r.label}
+                  {r.group ? <Text color={C.dim} size="caption">{`  ·  ${groupName}: ${r.group}`}</Text> : ''}
+                </Text>
+                <Text mono size="caption" color={C.muted}>
+                  <Text color={C.accent}>{textBar(r.value, max, 14)}</Text> {metricText(dg, { metric: dg.metric, value: r.value }, cur)}
+                  {r.cost !== undefined ? ` · ${fmt(r.cost, lg, 'currency', cur)}` : ''}
+                </Text>
+              </Box>
+            ))}
+          </Box>,
+          rest ? muteDim(restParts.join(' · ')) : null,
+        ]
+      }
+
+      const values = dg.days.map(d => d.value)
+      const markName = dg.names.conversions ? plainColumn(dg.names.conversions, lg).toLowerCase() : ''
+      const markDays = dg.days.filter(d => d.marks > 0)
+      const shown = dg.totals.map(x => x.metric)
+
+      return [
+        muteDim(capital(naturalRange(dg.from, dg.to, lg))),
+        <Box flexDirection="row" flexWrap="wrap" gap={3}>
+          {dg.totals.map(x => (
+            <Box flexDirection="column">
+              <Text size="title" weight="semibold" color={C.bright}>
+                {metricValue(x.metric, x.value, cur)}
+              </Text>
+              <Text size="caption" color={C.muted}>
+                {metricName(dg, x.metric)}
+              </Text>
+            </Box>
+          ))}
+        </Box>,
+        <Box flexDirection="column">
+          <Text size="footnote" color={C.text} weight="medium">
+            {t.perDay(capital(metricName(dg, dg.chartMetric)))}
+          </Text>
+          {Svg ? (
+            <Svg
+              source={columnChart({
+                labels: dg.days.map(d => d.date),
+                values,
+                marks: dg.days.map(d => d.marks),
+                name: metricName(dg, dg.chartMetric),
+                markName,
+                tip: v => metricValue(dg.chartMetric, v, cur),
+                short: t.dayShort,
+                width: chartW,
+              })}
+              alt={`${ds.title}: ${t.perDay(metricName(dg, dg.chartMetric))}`}
+              isInteractive
+            />
+          ) : (
+            <Text mono color={C.accent}>
+              {sparkline(values)}
+            </Text>
+          )}
+          {markDays.length > 0
+            ? Svg
+              ? <Text size="caption" color={C.tcp}>{t.markLegend(t.singular(markName))}</Text>
+              : muteDim(t.markDays(markName, markDays.map(d => t.dayShort(d.date)).join(', ')))
+            : null}
+        </Box>,
+        dg.groups.length >= 2 && dg.groupColumn ? (
+          <Box flexDirection="column" gap={1}>
+            <Text size="footnote" color={C.text} weight="medium">
+              {t.byGroup(plainColumn(dg.groupColumn, lg).toLowerCase())}
+            </Text>
+            {dg.groups.map(g => (
+              <Box flexDirection="column">
+                <Text color={C.bright}>{g.label}</Text>
+                <Text size="caption" color={C.muted}>
+                  {shown
+                    .map(m => g.totals.find(x => x.metric === m))
+                    .filter((x): x is Total => x !== undefined)
+                    .map(x => metricText(dg, x, cur))
+                    .join(' · ')}
+                </Text>
+              </Box>
+            ))}
+          </Box>
+        ) : null,
+      ]
+    }
+
     const numberCards = (rv?.datasets ?? []).map(ds => {
+      const dg = isSimple ? digestOf(ds) : undefined
+
+      if (dg) {
+        const terms = dg.kind === 'series' ? dg.totals.map(x => x.metric) : [dg.metric]
+
+        return card(ds.title, [
+          ...digestBody(ds, dg),
+          ds.note ? muteDim(ds.note) : null,
+          <Box flexDirection="row" flexWrap="wrap" gap={1}>
+            {badgesOf(ds)}
+          </Box>,
+          ds.check.missing > 0 ? <Text size="caption" color={C.warnText}>{t.totalsUnverified}</Text> : null,
+          tableToggle(ds),
+          tables.includes(ds.id) ? tableOf(ds, true) : null,
+          ...glossary(terms, lg, explained).map(line => muteDim(line)),
+        ])
+      }
+
       const heads = ds.chart === 'line' ? headlines(ds) : []
       const meaning = glossary(ds.columns, lg, explained)
 

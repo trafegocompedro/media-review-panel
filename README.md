@@ -12,7 +12,7 @@ A side panel for Claude Code that shows exactly what Claude reads while it analy
 
 The panel is **read-only**. It never changes anything in an ad account. It makes no network requests. It keeps review data only for the current session, and the only things it saves to disk are whether you muted the mascot and which view you chose.
 
-It opens in the **Simple** view, made for people new to paid media: what is happening now in one sentence, alerts in plain words with what to do next, three numbers at a glance (accounts, period, numbers checked), the steps, each chart with its totals and a check badge, and the meaning of each metric. Every technical detail is folded under *Technical details*. Press **Full** at the top for every section open, as a specialist would want it. The panel remembers your choice.
+It opens in the **Simple** view, made for people new to paid media: what is happening now in one sentence, alerts in plain words with what to do next, three numbers at a glance (accounts, period, numbers checked), the steps, each chart with its totals and a check badge, and the meaning of each metric. A long table is read for you: a table over days becomes the period's totals in big numbers, one bar per day (a green dot on the days with conversions) and one line per campaign; a long list becomes its top five, full names, and one line for the rest. The table itself stays one press away. Every technical detail is folded under *Technical details*. Press **Full** at the top for every section open, as a specialist would want it. The panel remembers your choice.
 
 ### What the panel shows
 
@@ -101,7 +101,7 @@ Um painel lateral para o Claude Code que mostra tudo o que o Claude lê enquanto
 
 O painel é **somente leitura**. Ele nunca muda nada em uma conta de anúncios. Ele não acessa a internet. Os dados da revisão ficam só na sessão atual, e as únicas coisas que ele grava no computador são se você silenciou o mascote e qual visão escolheu.
 
-Ele abre na visão **Simples**, feita para quem está começando em mídia paga: o que está acontecendo agora numa frase, avisos em português simples com o que fazer, três números de cara (contas, período e números conferidos), as etapas, cada gráfico com os totais e um selo de conferência, e o que quer dizer cada métrica. Os detalhes técnicos ficam recolhidos em *Detalhes técnicos*. Aperte **Completo** no topo para ver todas as seções abertas, do jeito que um especialista gosta. O painel lembra a sua escolha.
+Ele abre na visão **Simples**, feita para quem está começando em mídia paga: o que está acontecendo agora numa frase, avisos em português simples com o que fazer, três números de cara (contas, período e números conferidos), as etapas, cada gráfico com os totais e um selo de conferência, e o que quer dizer cada métrica. Uma tabela longa já vem lida: uma tabela por dia vira os totais do período em números grandes, uma barra por dia (ponto verde nos dias com conversão) e uma linha por campanha; uma lista longa vira os cinco maiores, com o nome inteiro, e uma linha para o resto. A tabela continua a um toque. Os detalhes técnicos ficam recolhidos em *Detalhes técnicos*. Aperte **Completo** no topo para ver todas as seções abertas, do jeito que um especialista gosta. O painel lembra a sua escolha.
 
 ### O que o painel mostra
 
