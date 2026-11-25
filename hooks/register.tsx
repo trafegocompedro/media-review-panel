@@ -982,8 +982,8 @@ export const register: Register = (on, options) => {
           <Text
             mono
             size="caption"
-            color={isNow ? C.onAccent : wasSeen ? C.text : C.dim}
-            backgroundColor={isNow ? C.fill : wasSeen ? C.border2 : undefined}
+            color={isNow ? C.onAccent : wasSeen ? C.chipText : C.dim}
+            backgroundColor={isNow ? C.fill : wasSeen ? C.chip : undefined}
           >
             {` ${isNow ? '● ' : wasSeen ? '✓ ' : ''}${levelName(lg, l)} `}
           </Text>
@@ -1505,6 +1505,19 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
+    // Behind text that follows the app's theme: a fill only where the palette is fixed.
+    const soft = (): { backgroundColor?: string; borderStyle?: 'round'; borderColor?: string } =>
+      C.soft ? { backgroundColor: C.soft } : { borderStyle: 'round', borderColor: C.border2 }
+
+    // A platform's name: an outline and the theme's own colors, so it follows a light or a dark app.
+    const tag = (text: string) => (
+      <Box borderStyle="round" borderColor={C.border2} paddingX={1}>
+        <Text size="caption" weight="semibold" color={C.infoText}>
+          {text}
+        </Text>
+      </Box>
+    )
+
     const pill = (text: string, color: string, bg?: string) => (
       <Text size="caption" color={color} backgroundColor={bg}>
         {` ${text} `}
@@ -1619,7 +1632,7 @@ export const register: Register = (on, options) => {
                     </Text>
                   ) : null}
                   {a.todo ? (
-                    <Box backgroundColor={C.grid} paddingX={1}>
+                    <Box {...soft()} paddingX={1}>
                       <Text size="footnote" color={C.text}>
                         <Text weight="semibold" color={C.bright}>
                           {t.whatToDo}
@@ -1711,7 +1724,7 @@ export const register: Register = (on, options) => {
         const shown = ans.missing.slice(0, 6)
 
         out.push(
-          <Box flexDirection="column" backgroundColor={C.grid} paddingX={1}>
+          <Box flexDirection="column" {...soft()} paddingX={1}>
             <Text size="footnote" weight="semibold" color={C.bright}>
               {t.ansMissingHead}
             </Text>
@@ -1769,7 +1782,7 @@ export const register: Register = (on, options) => {
           <Text color={C.bright} weight="semibold">
             {pieceTitle(p)}
           </Text>
-          {pill(`${mark} ${pieceStateText(p, lg)}`, p.state === 'ok' ? C.okText : p.state === 'waiting' ? C.bright : C.warnText, p.state === 'ok' ? C.okBg : p.state === 'waiting' ? C.grid : C.warnBg)}
+          {pill(`${mark} ${pieceStateText(p, lg)}`, p.state === 'ok' ? C.okText : p.state === 'waiting' ? C.chipText : C.warnText, p.state === 'ok' ? C.okBg : p.state === 'waiting' ? C.chip : C.warnBg)}
         </Box>,
       ]
 
@@ -1784,7 +1797,7 @@ export const register: Register = (on, options) => {
         )
         for (const x of scope) {
           out.push(
-            <Box flexDirection="column" backgroundColor={C.grid} paddingX={1}>
+            <Box flexDirection="column" {...soft()} paddingX={1}>
               <Text size="footnote" weight="semibold" color={C.bright}>
                 {pieceTitle(x.piece)}
               </Text>
@@ -1959,10 +1972,10 @@ export const register: Register = (on, options) => {
                 s.status === 'done'
                   ? pill('✓', C.okText, C.okBg)
                   : s.status === 'error'
-                    ? pill('✕', C.err, C.warnBg)
+                    ? pill('✕', C.warnText, C.warnBg)
                     : isNow
                       ? pill(String(i + 1), C.onTcp, C.tcp)
-                      : pill(String(i + 1), C.dim, C.grid)
+                      : pill(String(i + 1), C.chipText, C.chip)
 
               return (
                 <Box flexDirection="row" gap={1}>
@@ -2015,10 +2028,10 @@ export const register: Register = (on, options) => {
         if (c.missing > 0) out.push(pill(t.badgeMissing(c.missing), C.warnText, C.warnBg))
         if (total > 0) out.push(pill(t.badgeOk(c.found, total), C.okText, C.okBg))
         if (c.summed) out.push(pill(t.badgeSummed(c.summed), C.okText, C.okBg))
-        if (c.common) out.push(pill(t.badgeCommon(c.common), C.muted, C.grid))
+        if (c.common) out.push(pill(t.badgeCommon(c.common), C.chipText, C.chip))
       }
-      if (c.calculated > 0) out.push(pill(t.badgeCalc(c.calculated), C.muted, C.grid))
-      if (c.unchecked > 0) out.push(pill(t.badgeUnchecked(c.unchecked), C.muted, C.grid))
+      if (c.calculated > 0) out.push(pill(t.badgeCalc(c.calculated), C.chipText, C.chip))
+      if (c.unchecked > 0) out.push(pill(t.badgeUnchecked(c.unchecked), C.chipText, C.chip))
 
       return out
     }
@@ -2233,7 +2246,7 @@ export const register: Register = (on, options) => {
             ? pill(`● ${levelName(lg, l)}`, C.onTcp, C.tcp)
             : wasSeen
               ? pill(`✓ ${levelName(lg, l)}`, C.okText, C.okBg)
-              : pill(levelName(lg, l), C.dim, C.grid),
+              : pill(levelName(lg, l), C.chipText, C.chip),
         )
         if (i < items.length - 1) chips.push(<Text color={C.dim}>›</Text>)
       })
@@ -2259,7 +2272,7 @@ export const register: Register = (on, options) => {
       ? card(t.accountsPeriod, [
           ...rv.accounts.map(a => (
             <Box flexDirection="row" gap={1}>
-              {pill(platformLabel(a.platform), C.infoText, C.grid)}
+              {tag(platformLabel(a.platform))}
               <Box flexDirection="column" flexShrink={1}>
                 <Text color={a.name ? C.bright : C.muted}>{a.name ?? t.noNameAccount}</Text>
                 <Text size="caption" color={C.dim}>

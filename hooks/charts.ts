@@ -25,6 +25,16 @@ type Palette = {
   warnBg: string
   warnText: string
   infoText: string
+  /**
+   * A neutral chip carries its own background and text, like the ok and warn
+   * pairs: a theme key for the text over a fixed background reads white on light
+   * gray in a dark app.
+   */
+  chip: string
+  chipText: string
+  chipInfo: string
+  /** A soft box behind text. Undefined follows the app: the box gets a border instead. */
+  soft: string | undefined
 }
 
 // Terminal-style dark palette (the original look).
@@ -54,6 +64,10 @@ const DARK: Palette = {
   warnBg: '#3a2e10',
   warnText: '#f0c75e',
   infoText: '#7fb6f0',
+  chip: '#2d2d2d',
+  chipText: '#cccccc',
+  chipInfo: '#7fb6f0',
+  soft: '#2a2a2a',
 }
 
 // Light palette: every text color is at least 4.5:1 on its own card.
@@ -80,6 +94,10 @@ const LIGHT: Palette = {
   warnBg: '#fbecc2',
   warnText: '#7a4f00',
   infoText: '#0550ae',
+  chip: '#e3e8ed',
+  chipText: '#2f363d',
+  chipInfo: '#0550ae',
+  soft: '#eef1f4',
 }
 
 // Follows the app: theme keys for text and borders, and no fill of its own, so the
@@ -100,6 +118,7 @@ const AUTO: Palette = {
   warn: 'warning',
   err: 'error',
   infoText: 'suggestion',
+  soft: undefined,
 }
 
 let mode: ThemeMode = 'auto'

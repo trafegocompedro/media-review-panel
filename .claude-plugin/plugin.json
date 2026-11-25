@@ -1,6 +1,6 @@
 {
   "name": "media-review-panel",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Side panel that shows what Claude reads while it analyzes paid media (Google, Meta, TikTok, LinkedIn Ads): each query the panel recognizes, accounts, steps, data level, dates, chart numbers and the numbers of Claude's final answer checked against the account data, a card for each ad Claude builds or changes (Meta), shown before you approve it, and a log of each call it logged. Read-only. Made by Tráfego Com Pedro.",
   "author": {
     "name": "Tráfego Com Pedro",
