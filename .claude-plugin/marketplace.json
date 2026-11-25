@@ -8,7 +8,7 @@
     {
       "name": "media-review-panel",
       "source": "./",
-      "description": "Side panel that shows exactly what Claude reads while it analyzes paid media. Read-only. Made by Tráfego Com Pedro."
+      "description": "Side panel that shows each paid media query Claude makes that the panel recognizes, and checks the chart numbers against the responses. Read-only. Made by Tráfego Com Pedro."
     }
   ]
 }

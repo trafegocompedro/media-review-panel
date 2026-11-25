@@ -1,12 +1,12 @@
 {
   "name": "media-review-panel",
-  "version": "0.4.0",
-  "description": "Side panel that shows exactly what Claude reads while it analyzes paid media (Google, Meta, TikTok, LinkedIn Ads): accounts, steps, data level, dates, charts and a full debug log. Read-only. Made by Tráfego Com Pedro.",
+  "version": "0.4.1",
+  "description": "Side panel that shows what Claude reads while it analyzes paid media (Google, Meta, TikTok, LinkedIn Ads): each query the panel recognizes, accounts, steps, data level, dates, charts checked against the responses, and a log of each call it logged. Read-only. Made by Tráfego Com Pedro.",
   "author": {
     "name": "Tráfego Com Pedro",
     "url": "https://www.linkedin.com/in/soupedrosimoes/"
   },
-  "homepage": "https://www.instagram.com/trafegocompedro/",
+  "homepage": "https://trafegocompedro.com.br/ferramentas/revisao-de-midia",
   "keywords": [
     "paid media",
     "google ads",

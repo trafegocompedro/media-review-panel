@@ -63,7 +63,7 @@ const textOf = (r: ToolCallResult): string =>
   typeof r.text === 'string' ? r.text : typeof r.result === 'string' ? r.result : ''
 
 const REPORT_DESCRIPTION = [
-  'Keeps the Media Review Panel current: a side panel the user watches to see exactly what you read while you analyze paid media (Google, Meta, TikTok, LinkedIn Ads). It changes nothing in any ad account.',
+  'Keeps the Media Review Panel current: a side panel the user watches to see what you read, as far as the panel recognizes it, while you analyze paid media (Google, Meta, TikTok, LinkedIn Ads). It changes nothing in any ad account.',
   'Call it with action "start" when a paid media analysis begins (title, accounts with platform/id/name, periods, the steps you plan); "update" as you go (step status queued|fetching|analyzing|done|error, the data level you are reading, datasets for charts, assumptions, warnings); "finish" at the end. "clear" empties the panel.',
   'Rules: report only values you actually retrieved in this session, copied from tool results. Never estimate, fill gaps or invent values: use null for a missing point. Say in warnings when data was sampled, truncated, paged or incomplete.',
   'Each dataset cites source_calls: the call numbers the panel gives in tool results ("logged as call #N"); cite the call that fetched the data, not a later one that only re-read it. List columns you computed with a formula (CPA, ROAS, CTR) in calculated_columns. The panel checks every other number against the raw responses and tells you what it could not find.',
