@@ -9,8 +9,9 @@ import type {
   Review,
   Step,
   StepStatus,
+  SumSpec,
 } from '../types'
-import { isInSource, numberIndex, toNumber } from './detect'
+import { checkSum, isInSource, numberIndex, toNumber } from './detect'
 import { normalizeLevel, strings } from './i18n'
 
 export const MAX_ROWS = 400
@@ -97,16 +98,25 @@ const periodOf = (v: unknown): Period | undefined => {
 const cellOf = (v: unknown): Cell =>
   typeof v === 'number' ? (Number.isFinite(v) ? v : null) : typeof v === 'string' ? v : null
 
+const MAX_SUMS = 200
+const MAX_PARTS = 1000
+
+const round = (n: number): string => String(Math.round(n * 100) / 100)
+
 /** Checks a dataset's numbers against the raw text of the calls it cites. */
 export const checkDataset = (ds: Omit<Dataset, 'check'>, sourceText: (n: number) => string | undefined): CheckResult => {
   const xCol = ds.x ?? ds.columns[0]
   const texts = ds.sourceCalls.map(sourceText)
   const known = texts.filter((t): t is string => t !== undefined)
+  // Some cited answers are not in memory: a number not found may be in one of them.
+  const isPartial = known.length > 0 && known.length < texts.length
   const index = known.length > 0 ? numberIndex(known.join('\n')) : []
-  const result: CheckResult = { found: 0, missing: 0, calculated: 0, unchecked: 0, missingSamples: [], missingCells: [] }
+  const sums = new Map((ds.sums ?? []).map(s => [`${s.row}:${ds.columns.indexOf(s.column)}`, s.parts]))
+  const result: CheckResult = { found: 0, missing: 0, calculated: 0, unchecked: 0, summed: 0, missingSamples: [], missingCells: [] }
 
   if (ds.sourceCalls.length === 0) result.note = 'none-cited'
   else if (known.length === 0) result.note = 'not-in-memory'
+  else if (isPartial) result.note = 'partly-in-memory'
 
   ds.rows.forEach((row, r) => {
     ds.columns.forEach((col, c) => {
@@ -125,16 +135,65 @@ export const checkDataset = (ds: Omit<Dataset, 'check'>, sourceText: (n: number)
 
         return
       }
-      if (isInSource(index, v)) result.found += 1
-      else {
-        result.missing += 1
-        if (result.missingCells.length < 200) result.missingCells.push(`${r}:${c}`)
-        if (result.missingSamples.length < 6) result.missingSamples.push(`${col} = ${String(row[c])} (row ${r + 1})`)
+      if (isInSource(index, v)) {
+        result.found += 1
+
+        return
       }
+
+      const parts = sums.get(`${r}:${c}`)
+      const sum = parts ? checkSum(index, v, parts) : undefined
+
+      if (sum?.ok) {
+        result.found += 1
+        result.summed = (result.summed ?? 0) + 1
+
+        return
+      }
+      if (isPartial) {
+        result.unchecked += 1
+
+        return
+      }
+
+      const why = !parts || !sum
+        ? ''
+        : sum.absent > 0
+          ? `: ${sum.absent} of ${parts.length} parts not in the sources`
+          : `: the parts add up to ${round(sum.total)}`
+
+      result.missing += 1
+      if (result.missingCells.length < 200) result.missingCells.push(`${r}:${c}`)
+      if (result.missingSamples.length < 6) result.missingSamples.push(`${col} = ${String(row[c])} (row ${r + 1})${why}`)
     })
   })
 
   return result
+}
+
+/** The sums a report gives: a row by index or by its label, a known column, the parts as numbers. */
+const sumsOf = (v: unknown, columns: string[], rows: Cell[][], xCol: string | undefined): SumSpec[] => {
+  const xi = Math.max(0, columns.indexOf(xCol ?? columns[0] ?? ''))
+  const out: SumSpec[] = []
+
+  for (const s of arr(v).slice(0, MAX_SUMS)) {
+    const o = (s ?? {}) as In
+    const column = str(o.column)
+    const row =
+      typeof o.row === 'number' && Number.isInteger(o.row) && o.row >= 0 && o.row < rows.length
+        ? o.row
+        : typeof o.row === 'string'
+          ? rows.findIndex(r => String(r[xi] ?? '') === o.row)
+          : -1
+    const parts = arr(o.parts)
+      .slice(0, MAX_PARTS)
+      .map(toNumber)
+      .filter((p): p is number => p !== undefined)
+
+    if (column && columns.includes(column) && row >= 0 && parts.length > 0) out.push({ row, column, parts })
+  }
+
+  return out
 }
 
 export const datasetOf = (v: unknown, sourceText: (n: number) => string | undefined): Dataset | undefined => {
@@ -161,6 +220,7 @@ export const datasetOf = (v: unknown, sourceText: (n: number) => string | undefi
       .map(n => Number(n))
       .filter(n => Number.isInteger(n) && n > 0),
     calculated: arr(o.calculated_columns).map(s => String(s)),
+    sums: sumsOf(o.sums, columns, rows, str(o.x)),
     note: str(o.note),
     totalRows: allRows.length,
   } satisfies Omit<Dataset, 'check'>
@@ -245,11 +305,17 @@ export const applyReport = (
 
     const c = ds.check
     const head = `Dataset "${ds.title}": ${c.found} found, ${c.missing} not found, ${c.calculated} calculated, ${c.unchecked} unchecked.`
+    const sent = arr((d as In)?.sums).length
 
-    notes.push(head)
+    notes.push(c.summed ? `${head} ${c.summed} of the found were confirmed by adding up their parts.` : head)
+    if (sent > (ds.sums?.length ?? 0)) notes.push(`  ${sent - (ds.sums?.length ?? 0)} of the sums were skipped: each needs a row (index from 0 or the x value), a column of the dataset and parts as numbers.`)
     if (c.note === 'none-cited') notes.push('  It cites no source_calls, so nothing could be checked. Cite the call numbers the panel gave.')
     if (c.note === 'not-in-memory') notes.push('  The cited calls are no longer in memory (the panel reloaded), so nothing could be checked.')
-    if (c.missing > 0) notes.push(`  Not found in the cited responses: ${c.missingSamples.join('; ')}. Recheck these before you rely on them.`)
+    if (c.note === 'partly-in-memory') notes.push('  Some cited calls are not in memory, so a number not found there was left unchecked.')
+    if (c.missing > 0) {
+      notes.push(`  Not found in the cited responses: ${c.missingSamples.join('; ')}. Recheck these before you rely on them.`)
+      notes.push('  A total you added up (campaigns, days) is written in no response: send it in sums with the parts you copied from the cited responses.')
+    }
     if (ds.totalRows > MAX_ROWS) notes.push(`  Only the first ${MAX_ROWS} of ${ds.totalRows} rows are kept.`)
   }
 
@@ -278,6 +344,36 @@ export const applyReport = (
 
 const DATE_PAIR = /(\d{4}-\d{2}-\d{2})\s*→\s*(\d{4}-\d{2}-\d{2})/
 
+/** The periods of a review, the comparisons included, as [start, end] pairs. */
+export const spansOf = (periods: Period[]): [string, string][] =>
+  periods.flatMap((p): [string, string][] =>
+    p.compareStart !== undefined && p.compareEnd !== undefined
+      ? [
+          [p.start, p.end],
+          [p.compareStart, p.compareEnd],
+        ]
+      : [[p.start, p.end]],
+  )
+
+const nextDay = (iso: string): string | undefined => {
+  const t = Date.parse(`${iso}T00:00:00Z`)
+
+  return Number.isFinite(t) ? new Date(t + 86400000).toISOString().slice(0, 10) : undefined
+}
+
+/** Whether every day from a to b is in one of the spans (two periods side by side cover their union). */
+export const isCovered = (a: string, b: string, spans: [string, string][]): boolean => {
+  let at: string | undefined = a
+
+  for (const [s, e] of [...spans].sort((x, y) => x[0].localeCompare(y[0]))) {
+    if (at === undefined) return false
+    if (s <= at && e >= at) at = nextDay(e)
+    if (at !== undefined && at > b) return true
+  }
+
+  return false
+}
+
 /** The warnings the panel finds by itself in the calls and datasets of a review. */
 export const autoWarnings = (review: Review, calls: CallLog[], lang: Lang): string[] => {
   const t = strings(lang)
@@ -289,6 +385,7 @@ export const autoWarnings = (review: Review, calls: CallLog[], lang: Lang): stri
     if (call.status === 'empty') out.push(t.w_empty(call.n))
     if (call.flags.includes('paging')) out.push(t.w_paging(call.n))
     if (call.flags.includes('truncated')) out.push(t.w_truncated(call.n))
+    if (call.flags.includes('saved-unread')) out.push(t.w_saved(call.n))
     if (call.flags.includes('sampled')) out.push(t.w_sampled(call.n))
 
     if (review.periods.length > 0) {
@@ -298,13 +395,8 @@ export const autoWarnings = (review: Review, calls: CallLog[], lang: Lang): stri
         if (!m) continue
 
         const [, a = '', b = ''] = m
-        const inside = review.periods.some(
-          p =>
-            (a >= p.start && b <= p.end) ||
-            (p.compareStart !== undefined && p.compareEnd !== undefined && a >= p.compareStart && b <= p.compareEnd),
-        )
 
-        if (!inside) out.push(t.w_dates(call.n, d))
+        if (!isCovered(a, b, spansOf(review.periods))) out.push(t.w_dates(call.n, d))
       }
     }
   }

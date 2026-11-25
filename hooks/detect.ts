@@ -17,6 +17,8 @@ const API_HOST = /(graph\.facebook\.com|googleads\.googleapis\.com|business-api\
 const MEDIA_SCRIPT =
   /[\w./-]*(gaql|gads|google[-_]?ads|googleads|meta[-_]?ads|facebook[-_]?ads|fb[-_]?ads|tiktok[-_]?ads|linkedin[-_]?ads)[\w-]*\.(py|js|mjs|ts|sh|rb)\b/i
 const DATA_FILE = /\.(json|jsonl|csv|tsv)$/i
+// Claude's own transcripts and saved results: reading them again fetches nothing.
+const TRANSCRIPT = /\.claude\/projects\//
 // Something that runs code. A command with none of these only shows or edits
 // files: a GAQL string in a script's source is not a query that ran.
 const RUNNER =
@@ -49,8 +51,17 @@ export const parseScripts = (raw: unknown): string[] =>
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+// A command that only shows, finds or copies a file: `cat x.py`, `find . -name x.py`.
+const VIEWER =
+  /^\s*(sudo\s+)?(cat|bat|head|tail|less|more|grep|egrep|rg|ag|sed|awk|find|fd|ls|wc|stat|file|open|code|vim?|nano|git|diff|cp|mv|rm|echo|printf|touch|chmod|which|type)(\s|$)/
+
+/** The user's script a command runs: named in a part of the command that runs it, not one that shows it. */
 const runsScript = (command: string, scripts: string[]): string | undefined =>
-  scripts.find(name => new RegExp(`(^|[\\s/'"=])${escape(name)}($|[\\s'";|&)])`).test(command))
+  scripts.find(name => {
+    const named = new RegExp(`(^|[\\s/'"=])${escape(name)}($|[\\s'";|&)])`)
+
+    return command.split(/&&|\|\||;|\||\n/).some(seg => named.test(seg) && !VIEWER.test(seg))
+  })
 
 export const platformOf = (s: string): string => {
   if (/google|gaql|gads|searchstream|cost_?micros|segments\.|customers\/\d{10}/i.test(s)) return 'Google Ads'
@@ -101,7 +112,7 @@ export const classify = (
   if (tool === 'Read' && isReviewActive) {
     const path = typeof input.file_path === 'string' ? input.file_path : ''
 
-    if (!DATA_FILE.test(path)) return undefined
+    if (!DATA_FILE.test(path) || TRANSCRIPT.test(path)) return undefined
 
     return { platform: '—', kind: 'file', label: `Read: ${path.split('/').slice(-2).join('/')}` }
   }
@@ -123,7 +134,9 @@ const bashDetected = (command: string, script?: string): Detected => {
 export const classifyOutput = (raw: string, text: string): Detected | undefined => {
   const command = withoutHeredocs(raw)
 
-  if (isViewOnly(command) || !ADS_OUTPUT.test(text.slice(0, 200_000))) return undefined
+  // A script that reads Claude's transcripts prints old answers, not new data:
+  // the call that fetched them is already logged under its own number.
+  if (isViewOnly(command) || TRANSCRIPT.test(raw) || !ADS_OUTPUT.test(text.slice(0, 200_000))) return undefined
 
   const found = bashDetected(command)
   // The heredoc's text does not make a call, but it can name the platform.
@@ -145,7 +158,6 @@ const ACCOUNT_KEY = /^(ad_)?account(_id|_ids|s)?$|^customer(_id|_ids|id)?$|^adve
 const LEVEL_KEY = /^(level|entity_type|object_type|entity_level|report_level|entity)$/i
 const FIELD_KEY = /^(fields|metrics|columns|dimensions)$/i
 const DATE_KEY = /(date|since|until|start|end|time_range|timerange|period|preset)/i
-const ISO_DATE = /\b(20\d{2}-\d{2}-\d{2})\b/g
 
 const short = (v: unknown, max = 90): string => {
   const s = typeof v === 'string' ? v : JSON.stringify(v) ?? ''
@@ -167,16 +179,43 @@ const gaql = (text: string): { level?: string; fields: string[]; dates: string[]
   const fields = select?.[1]?.split(',').map(f => f.trim()).filter(f => /^[a-z_.]+$/i.test(f)) ?? []
   const from = select?.[2]
   const dates: string[] = []
-  const between = /segments\.date\s+between\s+'?(\d{4}-\d{2}-\d{2})'?\s+and\s+'?(\d{4}-\d{2}-\d{2})'?/i.exec(text)
 
-  if (between) dates.push(`${between[1]} → ${between[2]}`)
-
-  const during = /during\s+([a-z_0-9]+)/i.exec(text)
-
-  if (during?.[1]) dates.push(during[1].toUpperCase())
+  // Every query of the command, each with its own dates: a script may run several.
+  for (const m of text.matchAll(/segments\.date\s+between\s+'?(\d{4}-\d{2}-\d{2})'?\s+and\s+'?(\d{4}-\d{2}-\d{2})'?/gi)) {
+    dates.push(`${m[1]} → ${m[2]}`)
+  }
+  for (const m of text.matchAll(/during\s+([a-z_0-9]+)/gi)) {
+    if (m[1]) dates.push(m[1].toUpperCase())
+  }
 
   return { level: from ? normalizeLevel(from) : undefined, fields, dates }
 }
+
+// A date on its own, not part of a name: "intakes-2026-11-25/" or
+// "report_2026-11-25.json" names a folder or file, not a period.
+const LONE_DATE = /(?<![\w/\\-])(?<!\w\.)(20\d{2}-\d{2}-\d{2})(?![\w/\\-]|\.\w)/g
+
+/**
+ * The periods a command names without a query: dates paired in the order
+ * written (since, until), so two periods stay two. A date left alone is a day.
+ */
+export const datesIn = (text: string): string[] => {
+  const found = [...text.matchAll(LONE_DATE)].map(m => m[1] ?? '').filter(d => d !== '')
+  const out: string[] = []
+
+  for (let i = 0; i < found.length; i += 1) {
+    const a = found[i] ?? ''
+    const b = found[i + 1]
+
+    if (b !== undefined && a <= b) {
+      out.push(`${a} → ${b}`)
+      i += 1
+    } else out.push(a)
+  }
+
+  return out
+}
+
 
 /** Reads the accounts, level, dates and fields a tool call's input names. */
 export const extract = (tool: string, input: Record<string, unknown>): Extracted => {
@@ -193,12 +232,7 @@ export const extract = (tool: string, input: Record<string, unknown>): Extracted
     accounts.push(...accountsIn(text))
     dates.push(...q.dates)
 
-    const isoDates = text.match(ISO_DATE) ?? []
-
-    if (q.dates.length === 0 && isoDates.length > 0) {
-      const sorted = [...isoDates].sort()
-      dates.push(sorted.length > 1 ? `${sorted[0]} → ${sorted[sorted.length - 1]}` : sorted[0] ?? '')
-    }
+    if (q.dates.length === 0) dates.push(...datesIn(text))
 
     return { params, accounts: uniq(accounts), level: q.level, dates: uniq(dates), fields: q.fields }
   }
@@ -359,6 +393,13 @@ export const readResult = (text: string): ResultFacts => {
   return { rows: undefined, rowsApprox: true, flags }
 }
 
+/**
+ * Where a result too large for the model was saved, when the answer says so:
+ * "Output has been saved to /…/x.txt" (a tool) or "Full output saved to: /…" (a command).
+ */
+export const savedPath = (text: string): string | undefined =>
+  /(?:output has been saved to|full output saved to:?)\s+(\/[^\s'"`<>]+[^\s'"`<>.,;:)])/i.exec(text.slice(0, 2000))?.[1]
+
 /** Every number written in a text, sorted, for the source check. */
 export const numberIndex = (text: string): number[] => {
   const out: number[] = []
@@ -394,11 +435,28 @@ const within = (sorted: number[], lo: number, hi: number): boolean => {
   return a < sorted.length && (sorted[a] ?? Infinity) <= hi
 }
 
-const decimalsOf = (v: number): number => {
+export const decimalsOf = (v: number): number => {
   const s = String(v)
   const dot = s.indexOf('.')
 
   return dot < 0 ? 0 : Math.min(6, s.length - dot - 1)
+}
+
+export type SumCheck = { ok: boolean; absent: number; total: number }
+
+/**
+ * Whether a total is the sum of its parts, each part found in the source.
+ * A part written with fewer decimals than the total (a script that printed
+ * 1201 for 1200.62) may be off by its own rounding; an exact part may not.
+ */
+export const checkSum = (sorted: number[], v: number, parts: number[]): SumCheck => {
+  const absent = parts.filter(p => !isInSource(sorted, p)).length
+  const total = parts.reduce((a, p) => a + p, 0)
+  const dv = decimalsOf(v)
+  const slack = parts.reduce((a, p) => (decimalsOf(p) < dv ? a + 0.5 * Math.pow(10, -decimalsOf(p)) : a), 0)
+  const tol = 0.5 * Math.pow(10, -dv) + slack + 1e-6
+
+  return { ok: absent === 0 && Math.abs(total - v) <= tol, absent, total }
 }
 
 /**

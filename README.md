@@ -28,7 +28,7 @@ Bip, the pixel-art robot in the corner, wears the greens of Tráfego Com Pedro a
 ### How it works
 
 - The mod watches tool calls. When one reads paid media data, it logs the call and opens the panel. This covers the Meta Ads connector, Adspirer, Supermetrics, and TikTok or LinkedIn tools, plus Google Ads scripts and GAQL queries run in the terminal.
-- Claude fills in the rest (steps, level, periods, chart data) through a small tool the mod adds, `report`. Each chart names the logged calls its data came from. The mod then looks for every number in those raw responses and marks it as *found*, *not found* or *calculated* (for CPA, ROAS, CTR and the like). A spot check like this catches typos and invented values, but it doesn't prove a number is right.
+- Claude fills in the rest (steps, level, periods, chart data) through a small tool the mod adds, `report`. Each chart names the logged calls its data came from. The mod then looks for every number in those raw responses and marks it as *found*, *not found* or *calculated* (for CPA, ROAS, CTR and the like). A total Claude added up (several campaigns or days) comes with its parts: the mod finds each part and checks the addition. When a response was too large and was saved to a file, the mod reads that file. A spot check like this catches typos and invented values, but it doesn't prove a number is right.
 
 ### Commands
 
@@ -117,7 +117,7 @@ O Bip, o robô em pixel art no canto, usa os verdes da Tráfego Com Pedro e ence
 ### Como funciona
 
 - O mod observa as chamadas de ferramenta. Quando uma delas lê dados de mídia paga, ele registra a chamada e abre o painel. Isso vale para o conector do Meta Ads, Adspirer, Supermetrics e ferramentas de TikTok ou LinkedIn, além de scripts do Google Ads e consultas GAQL rodadas no terminal.
-- O Claude preenche o resto (etapas, nível, períodos e dados dos gráficos) por uma pequena ferramenta que o mod acrescenta, a `report`. Cada gráfico diz de quais chamadas registradas vieram os dados. O mod então procura cada número nessas respostas brutas e marca como *encontrado*, *não encontrado* ou *calculado* (CPA, ROAS, CTR e parecidos). Essa conferência por amostra pega erro de digitação e valor inventado, mas não prova que um número está certo.
+- O Claude preenche o resto (etapas, nível, períodos e dados dos gráficos) por uma pequena ferramenta que o mod acrescenta, a `report`. Cada gráfico diz de quais chamadas registradas vieram os dados. O mod então procura cada número nessas respostas brutas e marca como *encontrado*, *não encontrado* ou *calculado* (CPA, ROAS, CTR e parecidos). Um total somado pelo Claude (várias campanhas ou dias) vem com as partes: o mod procura cada parte e confere a soma. Quando uma resposta era grande demais e foi salva num arquivo, o mod lê esse arquivo. Essa conferência por amostra pega erro de digitação e valor inventado, mas não prova que um número está certo.
 
 ### Comandos
 

@@ -4,7 +4,7 @@ import type { ElementConstructor, EngineInterface, Register, RenderElement, SvgP
 import type { CallLog, CallStatus, Dataset, Lang, Mood, Review, StepStatus, ViewMode } from '../types'
 import { C, barChart, fmt, lineChart, sparkline, textBar } from './charts'
 import { buildDemo } from './demo'
-import { OWN_TOOL, accountsIn, classify, classifyOutput, extract, parseScripts, platformOf, readResult, toNumber } from './detect'
+import { OWN_TOOL, accountsIn, classify, classifyOutput, extract, parseScripts, platformOf, readResult, savedPath, toNumber } from './detect'
 import { LEVELS, guessLang, levelName, mascotText, strings } from './i18n'
 import type { MascotKey } from './i18n'
 import { robot, robotText } from './mascot'
@@ -44,6 +44,17 @@ const keepSource = (n: number, text: string) => {
 }
 const sourceText = (n: number) => sources.get(n)
 
+/** The saved file of a result too large for the model, or undefined when it can't be read. */
+const readSaved = async ($: EngineInterface, path: string): Promise<string | undefined> => {
+  try {
+    const text = await $.fs.read(path, { length: MAX_SOURCE })
+
+    return typeof text === 'string' && text !== '' ? text : undefined
+  } catch {
+    return undefined
+  }
+}
+
 const nudged = new Set<string>()
 
 const textOf = (r: ToolCallResult): string =>
@@ -53,7 +64,9 @@ const REPORT_DESCRIPTION = [
   'Keeps the Media Review Panel current: a side panel the user watches to see exactly what you read while you analyze paid media (Google, Meta, TikTok, LinkedIn Ads). It changes nothing in any ad account.',
   'Call it with action "start" when a paid media analysis begins (title, accounts with platform/id/name, periods, the steps you plan); "update" as you go (step status queued|fetching|analyzing|done|error, the data level you are reading, datasets for charts, assumptions, warnings); "finish" at the end. "clear" empties the panel.',
   'Rules: report only values you actually retrieved in this session, copied from tool results. Never estimate, fill gaps or invent values: use null for a missing point. Say in warnings when data was sampled, truncated, paged or incomplete.',
-  'Each dataset cites source_calls: the call numbers the panel gives in tool results ("logged as call #N"). List columns you computed (CPA, ROAS, CTR) in calculated_columns. The panel checks every other number against the raw responses and tells you what it could not find.',
+  'Each dataset cites source_calls: the call numbers the panel gives in tool results ("logged as call #N"); cite the call that fetched the data, not a later one that only re-read it. List columns you computed with a formula (CPA, ROAS, CTR) in calculated_columns. The panel checks every other number against the raw responses and tells you what it could not find.',
+  'A total you added up from several values (campaigns, days) is written in no response: send it in sums with its row, column and the parts you copied from the cited responses. The panel finds each part and checks the addition.',
+  'periods: exactly the dates your numbers cover, the same in titles and datasets.',
   'Steps and datasets merge by id, accounts by id. Use plain numbers (no currency symbols) in rows.',
 ].join('\n')
 
@@ -127,6 +140,19 @@ const REPORT_SCHEMA = {
           currency: { type: 'string' },
           source_calls: { type: 'array', items: { type: 'integer' } },
           calculated_columns: { type: 'array', items: { type: 'string' } },
+          sums: {
+            type: 'array',
+            description: 'Totals you added up: the cell and the parts, as written in the cited responses',
+            items: {
+              type: 'object',
+              properties: {
+                row: { type: ['integer', 'string'], description: 'Row index from 0, or the value in the x column' },
+                column: { type: 'string' },
+                parts: { type: 'array', items: { type: 'number' } },
+              },
+              required: ['row', 'column', 'parts'],
+            },
+          },
           note: { type: 'string' },
         },
         required: ['id', 'title', 'chart', 'columns', 'rows', 'source_calls'],
@@ -409,13 +435,19 @@ export const register: Register = (on, options) => {
       done.error = (ran.text ?? String(ran.result ?? '')).slice(0, 400)
     } else {
       const text = ran.text ?? (typeof ran.result === 'string' ? ran.result : JSON.stringify(ran.result ?? ''))
-      keepSource(n, text)
+      // A result too large for the model was saved to a file, and the model
+      // got only where: the numbers are in the file, so the check reads it.
+      const saved = savedPath(text)
+      const file = saved === undefined ? undefined : await readSaved($, saved)
+      const body = file ?? text
 
-      const facts = readResult(text)
-      done.chars = text.length
+      if (saved === undefined || file !== undefined) keepSource(n, file === undefined ? text : `${text}\n${file}`)
+
+      const facts = readResult(body)
+      done.chars = body.length
       done.rows = facts.rows
       done.rowsApprox = facts.rowsApprox
-      done.flags = facts.flags
+      done.flags = saved === undefined ? facts.flags : [...facts.flags, file === undefined ? 'saved-unread' : 'saved']
       done.currency = facts.currency
       done.timezone = facts.timezone
 
@@ -427,12 +459,27 @@ export const register: Register = (on, options) => {
       // A script names neither its platform nor its account in the command:
       // read them off what it printed.
       if (tool === 'Bash') {
-        if (det.platform === 'Ads') done.platform = platformOf(text.slice(0, 20_000))
-        if (x.accounts.length === 0) done.accounts = [...new Set(accountsIn(text.slice(0, 200_000)))].slice(0, 12)
+        if (det.platform === 'Ads') done.platform = platformOf(body.slice(0, 20_000))
+        if (x.accounts.length === 0) done.accounts = [...new Set(accountsIn(body.slice(0, 200_000)))].slice(0, 12)
       }
     }
 
     await update($, calls, list => list.map(c => (c.n === n ? { ...c, ...done } : c)))
+
+    // A script's command named its account but not its platform: the output did.
+    if (det.platform === 'Ads' && done.platform !== undefined && done.platform !== 'Ads' && x.accounts.length > 0) {
+      const platform = done.platform
+
+      await update($, review, cur => {
+        if (cur === null) return cur
+
+        let accounts = cur.accounts
+
+        for (const id of x.accounts) accounts = mergeAccount(accounts, { platform, id, origin: 'auto', calls: [n] })
+
+        return { ...cur, accounts }
+      })
+    }
 
     if (done.accounts && done.accounts.length > 0) {
       const found = done.accounts
@@ -813,6 +860,7 @@ export const register: Register = (on, options) => {
       const sourceTxt = ds.sourceCalls.length ? `${t.source} #${ds.sourceCalls.join(' #')}` : t.noSource
       const parts = [`${c.found} ${t.found}`, `${c.missing} ${t.missing}`]
 
+      if (c.summed) parts.push(t.bySum(c.summed))
       if (c.calculated) parts.push(`${c.calculated} ${t.calculated}`)
       if (c.unchecked) parts.push(`${c.unchecked} ${t.unchecked}`)
 
@@ -1502,6 +1550,7 @@ export const register: Register = (on, options) => {
       else {
         if (c.missing > 0) out.push(pill(t.badgeMissing(c.missing), C.warnText, C.warnBg))
         if (total > 0) out.push(pill(t.badgeOk(c.found, total), C.okText, C.okBg))
+        if (c.summed) out.push(pill(t.badgeSummed(c.summed), C.okText, C.okBg))
       }
       if (c.calculated > 0) out.push(pill(t.badgeCalc(c.calculated), C.muted, C.grid))
       if (c.unchecked > 0) out.push(pill(t.badgeUnchecked(c.unchecked), C.muted, C.grid))

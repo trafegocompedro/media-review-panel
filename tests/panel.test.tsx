@@ -304,7 +304,7 @@ test('Simple view: the demo reads in plain words, with what to do and the detail
     expect(await ui.find({ type: 'Text', text: /Analyzing: Google: keywords and search terms/ })).toBeDefined()
     // Alerts in plain words, each with a next step.
     expect(await ui.find({ type: 'Text', text: /Needs your attention/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /1 number does not match the source/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /1 number is not in the source/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /What to do:/ })).toBeDefined()
     // The three tiles and the plain period.
     expect(await ui.find({ type: 'Text', text: /October 2026/ })).toBeDefined()
@@ -382,13 +382,13 @@ test('plain alerts: the most serious first, each with a next step', () => {
   const demo = buildDemo(Date.parse('2026-11-23T12:00:00Z'), 'pt')
   const alerts = plainAlerts(demo.review, demo.calls, 'pt')
 
-  expect(alerts[0]?.title).toMatch(/não bate com a fonte/)
+  expect(alerts[0]?.title).toMatch(/não aparece na fonte/)
   expect(alerts[0]?.body).toMatch(/exemplo tênis de corrida/)
   // The list that came back in part is a warning, so it comes before the empty query.
   expect(alerts[1]?.title).toMatch(/pela metade/)
   expect(alerts[1]?.todo).toMatch(/todas as páginas/)
   expect(alerts.some(a => /voltou vazia/.test(a.title))).toBe(true)
-  expect(alerts.some(a => /fora do período/.test(a.title) && /setembro/.test(a.body ?? ''))).toBe(true)
+  expect(alerts.some(a => /mais dias que o período/.test(a.title) && /agosto/.test(a.body ?? ''))).toBe(true)
   expect(nowLine(demo.review, 'pt')).toBe('Analisando: Google: palavras-chave e termos pesquisados')
   expect(nowLine(null, 'pt')).toMatch(/Esperando/)
 })

@@ -35,6 +35,8 @@ export type CheckResult = {
   missing: number
   calculated: number
   unchecked: number
+  /** Of the found, those confirmed by adding up their parts (a total of campaigns, days). */
+  summed?: number
   missingSamples: string[]
   /** "row:column" of each number not found, for the table to mark. */
   missingCells: string[]
@@ -53,10 +55,15 @@ export type Dataset = {
   currency?: string
   sourceCalls: number[]
   calculated: string[]
+  /** Totals Claude added up, each with the parts it copied from the sources. */
+  sums?: SumSpec[]
   note?: string
   totalRows: number
   check: CheckResult
 }
+
+/** One cell that is a sum: its row (from 0), its column and the values added up. */
+export type SumSpec = { row: number; column: string; parts: number[] }
 
 export type Review = {
   id: string

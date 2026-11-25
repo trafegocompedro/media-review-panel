@@ -6,6 +6,7 @@ import type { CallLog, Dataset, Lang, Review } from '../types'
 import { fmt } from './charts'
 import { toNumber } from './detect'
 import { levelName, strings } from './i18n'
+import { isCovered, spansOf } from './review'
 
 export type Alert = { level: 'danger' | 'warn' | 'info'; title: string; body?: string; todo?: string }
 
@@ -209,7 +210,12 @@ export const plainAlerts = (review: Review, calls: CallLog[], lang: Lang): Alert
   const t = strings(lang)
   const out: Alert[] = []
   const period = review.periods[0]
-  const want = period ? naturalRange(period.start, period.end, lang) : ''
+  const main = period ? naturalRange(period.start, period.end, lang) : ''
+  // A comparison is a period too: a query of last year's dates is inside it.
+  const compare =
+    period?.compareStart !== undefined && period.compareEnd !== undefined ? naturalRange(period.compareStart, period.compareEnd, lang) : ''
+  const want = compare ? t.periodsBoth(main, compare) : main
+  const list = compare ? t.periodsList(main, compare) : main
 
   for (const c of calls) {
     if (c.kind === 'write') out.push({ level: 'danger', title: t.a_write_t, body: t.a_write_b(c.n, c.label), todo: t.a_write_d })
@@ -231,26 +237,42 @@ export const plainAlerts = (review: Review, calls: CallLog[], lang: Lang): Alert
   for (const c of calls) {
     if (c.flags.includes('paging')) out.push({ level: 'warn', title: t.a_paging_t, body: t.a_paging_b(c.n), todo: t.a_paging_d })
     if (c.flags.includes('truncated')) out.push({ level: 'warn', title: t.a_trunc_t, body: t.a_trunc_b(c.n), todo: t.a_trunc_d })
+    if (c.flags.includes('saved-unread')) out.push({ level: 'warn', title: t.a_saved_t, body: t.a_saved_b(c.n), todo: t.a_saved_d })
     if (c.flags.includes('sampled')) out.push({ level: 'info', title: t.a_sampled_t, body: t.a_sampled_b(c.n), todo: t.a_sampled_d })
     if (c.status === 'empty') out.push({ level: 'info', title: t.a_empty_t, body: t.a_empty_b(c.n, c.level ? levelName(lang, c.level) : ''), todo: t.a_empty_d })
   }
 
   if (review.periods.length > 0) {
+    // Each period the review reports, the comparison included.
+    const spans = spansOf(review.periods)
+
+    // One alert per query. A range that holds a whole period is a wider pull,
+    // often filtered later; a range that misses the periods is outside them.
     for (const c of calls) {
+      const out1: string[] = []
+      let isWider = true
+
       for (const d of c.dates) {
         const m = DATE_PAIR.exec(d)
 
         if (!m) continue
 
         const [, a = '', b = ''] = m
-        const inside = review.periods.some(
-          p =>
-            (a >= p.start && b <= p.end) ||
-            (p.compareStart !== undefined && p.compareEnd !== undefined && a >= p.compareStart && b <= p.compareEnd),
-        )
 
-        if (!inside) out.push({ level: 'info', title: t.a_dates_t, body: t.a_dates_b(c.n, naturalRange(a, b, lang), want), todo: t.a_dates_d })
+        if (isCovered(a, b, spans)) continue
+        if (!spans.some(([s, e]) => a <= s && b >= e)) isWider = false
+        out1.push(naturalRange(a, b, lang))
       }
+
+      if (out1.length === 0) continue
+
+      const got = out1.join('; ')
+
+      out.push(
+        isWider
+          ? { level: 'info', title: t.a_wider_t, body: t.a_wider_b(c.n, got, list), todo: t.a_wider_d }
+          : { level: 'info', title: t.a_dates_t, body: t.a_dates_b(c.n, got, want), todo: t.a_dates_d },
+      )
     }
   }
 

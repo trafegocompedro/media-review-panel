@@ -93,7 +93,7 @@ export const buildDemo = (now: number, lang: Lang = 'en'): Demo => {
     {
       n: 5, id: 'demo-5', tool: 'Bash', label: 'Bash: gaql.py', platform: 'Google Ads', kind: 'read',
       params: [['command', 'python3 gaql.py keywords']],
-      accounts: ['000-000-0001'], level: 'keyword', dates: ['2026-09-01 → 2026-10-31'], fields: ['ad_group_criterion.keyword.text', 'metrics.clicks', 'metrics.conversions', 'metrics.cost_micros'],
+      accounts: ['000-000-0001'], level: 'keyword', dates: ['2026-08-01 → 2026-10-31'], fields: ['ad_group_criterion.keyword.text', 'metrics.clicks', 'metrics.conversions', 'metrics.cost_micros'],
       status: 'ok', rows: 4, rowsApprox: false, flags: ['paging'], startedAt: at(5), ms: 1990, chars: 610,
       input: '{ "command": "python3 gaql.py keywords" }',
     },
