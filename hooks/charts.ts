@@ -434,3 +434,56 @@ const columnChartRaw = ({ labels, values, marks, name, markName, tip, short, wid
 export const lineChart = (a: Parameters<typeof lineChartRaw>[0]): string => themed(() => lineChartRaw(a))
 export const barChart = (a: Parameters<typeof barChartRaw>[0]): string => themed(() => barChartRaw(a))
 export const columnChart = (a: Parameters<typeof columnChartRaw>[0]): string => themed(() => columnChartRaw(a))
+
+export type BeltStation = { label: string; state: 'todo' | 'now' | 'done' | 'error'; count: number }
+
+/**
+ * The launch as an assembly line: one station per kind of piece, on a belt that
+ * moves while something is being built, a rocket at the end once it is live.
+ * Every state has its own mark (✓, …, ✕, ○), so color is never the only cue.
+ */
+const beltRaw = ({ stations, isLive, isMoving, width }: { stations: BeltStation[]; isLive: boolean; isMoving: boolean; width: number }): string => {
+  const W = Math.max(280, Math.round(width))
+  const H = 112
+  const n = Math.max(1, stations.length)
+  const slot = W / n
+  const box = Math.min(58, slot - 14)
+  const top = 14
+  const beltY = top + box + 8
+  const parts: string[] = [
+    '<style>@keyframes belt{to{transform:translateX(-12px)}}.mv{animation:belt .6s steps(3) infinite}.nw{animation:nw 1s steps(1) infinite}@keyframes nw{50%{opacity:.45}}@media (prefers-reduced-motion:reduce){.mv,.nw{animation:none}}</style>',
+    `<rect x="4" y="${beltY}" width="${W - 8}" height="10" rx="5" fill="${C.grid}" stroke="${C.border2}" stroke-width="1"/>`,
+    `<g${isMoving ? ' class="mv"' : ''}><line x1="10" x2="${W + 8}" y1="${beltY + 5}" y2="${beltY + 5}" stroke="${C.dim}" stroke-width="2" stroke-dasharray="4 8"/></g>`,
+  ]
+
+  stations.forEach((s, i) => {
+    const cx = slot * (i + 0.5)
+    const x = cx - box / 2
+    const done = s.state === 'done'
+    const fill = done ? C.okBg : s.state === 'error' ? C.warnBg : C.card ?? 'transparent'
+    const stroke = done ? C.tcp : s.state === 'error' ? C.err : s.state === 'now' ? C.accent : C.border2
+    const mark = done ? '✓' : s.state === 'error' ? '✕' : s.state === 'now' ? '…' : '○'
+    const markColor = done ? C.okText : s.state === 'error' ? C.err : s.state === 'now' ? C.accent : C.dim
+    const isRocket = i === stations.length - 1 && isLive
+
+    parts.push(
+      `<g${s.state === 'now' ? ' class="nw"' : ''}><title>${esc(`${s.label}: ${mark}${s.count > 1 ? ` ×${s.count}` : ''}`)}</title>` +
+        `<rect x="${x.toFixed(1)}" y="${top}" width="${box}" height="${box}" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="2"${s.state === 'todo' ? ' stroke-dasharray="4 3"' : ''}/>` +
+        (isRocket
+          ? `<text x="${cx.toFixed(1)}" y="${(top + box / 2 + 9).toFixed(1)}" text-anchor="middle" font-size="26">🚀</text>`
+          : `<text x="${cx.toFixed(1)}" y="${(top + box / 2 + 8).toFixed(1)}" text-anchor="middle" font-family="${SANS}" font-size="24" font-weight="600" fill="${markColor}">${mark}</text>`) +
+        (s.count > 1
+          ? `<text x="${(x + box - 6).toFixed(1)}" y="${top + 14}" text-anchor="end" font-family="${MONO}" font-size="11" fill="${C.text}">×${s.count}</text>`
+          : '') +
+        `<text x="${cx.toFixed(1)}" y="${H - 6}" text-anchor="middle" font-family="${SANS}" font-size="12" fill="${done ? C.okText : C.text}">${esc(s.label)}</text></g>`,
+    )
+
+    if (i < stations.length - 1) {
+      parts.push(`<text x="${(slot * (i + 1)).toFixed(1)}" y="${(top + box / 2 + 5).toFixed(1)}" text-anchor="middle" font-family="${SANS}" font-size="16" fill="${C.dim}">›</text>`)
+    }
+  })
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${parts.join('')}</svg>`
+}
+
+export const beltChart = (a: Parameters<typeof beltRaw>[0]): string => themed(() => beltRaw(a))

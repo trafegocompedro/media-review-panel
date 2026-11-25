@@ -260,8 +260,8 @@ test('UX: the mascot stops moving when the system asks for reduced motion', () =
   expect(robot('done')).not.toMatch(/<animate/)
 })
 
-test('Bip: each of the 14 moods is its own pixel-art pose', () => {
-  expect(MOODS.length).toBe(14)
+test('Bip: each of the 16 moods is its own pixel-art pose', () => {
+  expect(MOODS.length).toBe(16)
   const drawings = new Set<string>()
   for (const m of MOODS) {
     const svg = robot(m)
@@ -270,7 +270,7 @@ test('Bip: each of the 14 moods is its own pixel-art pose', () => {
     expect(robotText(m)).not.toBe('')
     drawings.add(svg)
   }
-  expect(drawings.size).toBe(14)
+  expect(drawings.size).toBe(16)
 })
 
 test('Bip: a mood saved by an older version falls back to the wave', () => {

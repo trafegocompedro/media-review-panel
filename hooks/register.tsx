@@ -1,9 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { ElementConstructor, EngineInterface, Register, RenderElement, SvgProps, ToolCallResult } from 'claude-code'
 
-import type { CallLog, CallStatus, Dataset, Lang, Mood, Review, StepStatus, ViewMode } from '../types'
-import { C, setThemeMode, barChart, columnChart, fmt, lineChart, sparkline, textBar } from './charts'
-import { buildDemo } from './demo'
+import type { CallLog, CallStatus, Dataset, Lang, LaunchAlert, LaunchFact, LaunchPiece, Mood, Review, StepStatus, ViewMode } from '../types'
+import { C, setThemeMode, barChart, beltChart, columnChart, fmt, lineChart, sparkline, textBar } from './charts'
+import type { BeltStation } from './charts'
+import { domainOf, findBefore, kindOf, liveScope, managerLink, missingOf, pieceOf, resultOf } from './launch'
+import { buildDemo, buildLaunchDemo } from './demo'
 import { digestOf, unitOf } from './digest'
 import type { Digest, Metric, Total } from './digest'
 import { checkAnswer } from './answer'
@@ -11,8 +13,24 @@ import { OWN_TOOL, accountsIn, classify, classifyOutput, extract, numberIndex, p
 import { LEVELS, guessLang, levelName, mascotText, strings } from './i18n'
 import type { MascotKey } from './i18n'
 import { robot, robotText } from './mascot'
-import { answerWarnings, applyReport, autoWarnings, daysBetween, mergeAccount, newReview } from './review'
-import { capital, checkTotals, friendlyCurrency, friendlyTimezone, glossary, naturalRange, nowLine, plainAlerts, plainColumn, stepPosition } from './plain'
+import { accountKey, answerWarnings, applyReport, autoWarnings, daysBetween, mergeAccount, newReview } from './review'
+import {
+  capital,
+  checkTotals,
+  factText,
+  friendlyCurrency,
+  friendlyTimezone,
+  glossary,
+  launchAlertText,
+  launchWarnings,
+  naturalRange,
+  nowLine,
+  pieceKindName,
+  pieceStateText,
+  plainAlerts,
+  plainColumn,
+  stepPosition,
+} from './plain'
 
 const PANE = 'media-review'
 const SITE = 'https://trafegocompedro.com.br'
@@ -33,6 +51,8 @@ const lang = atom({ plugin: 'media-review-panel', key: 'lang' } as const, 'en')
 const counter = atom({ plugin: 'media-review-panel', key: 'counter' } as const, 0)
 // Simple is the default: the panel is made for people new to paid media.
 const mode = atom({ plugin: 'media-review-panel', key: 'mode' } as const, 'simple' as ViewMode)
+// The pieces of a launch whose card is open, by call number.
+const openPieces = atom({ plugin: 'media-review-panel', key: 'openPieces' } as const, [])
 
 // Raw responses, kept in memory only for the source check (never stored or sent).
 const sources = new Map<number, string>()
@@ -253,14 +273,15 @@ const seriesUnit = (col: string, ds: Dataset): string => {
 
 const openedFor = new Set<string>()
 
-async function loadDemo($: EngineInterface) {
-  const demo = buildDemo(await $.clock.now(), await read($, lang))
+async function loadDemo($: EngineInterface, isLaunch = false) {
+  const demo = (isLaunch ? buildLaunchDemo : buildDemo)(await $.clock.now(), await read($, lang))
   sources.clear()
   for (const [k, v] of demo.sources) sources.set(k, v)
   await update($, review, () => demo.review)
   await update($, calls, () => demo.calls)
   await update($, counter, c => Math.max(c, demo.counter))
-  await say($, 'm_demo', 'demo')
+  if (isLaunch) await say($, 'm_launch', 'launch')
+  else await say($, 'm_demo', 'demo')
   await openPane($)
 }
 
@@ -340,12 +361,29 @@ export const register: Register = (on, options) => {
   const langOption = options.language === 'en' || options.language === 'pt' ? options.language : 'auto'
   // Your own data scripts, from your local settings only (never in the mod's files).
   const scripts = parseScripts(options.extraScripts)
+  // Your own launch rules, from your local settings only.
+  const budgetCap = (() => {
+    const n = Number(String(options.budgetAlert ?? '').replace(',', '.').trim())
+
+    return Number.isFinite(n) && n > 0 ? n : undefined
+  })()
+  const namePattern = (() => {
+    const raw = String(options.namePattern ?? '').trim()
+
+    if (raw === '') return undefined
+
+    try {
+      return new RegExp(raw)
+    } catch {
+      return undefined
+    }
+  })()
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'media-review',
       description: 'Open the Media Review Panel (paid media transparency and debugging)',
-      argumentHint: '[demo | clear | simple | full | mute | unmute | en | pt]',
+      argumentHint: '[demo | demo launch | clear | simple | full | mute | unmute | en | pt]',
     })
     await $.tool.register({ name: 'report', description: REPORT_DESCRIPTION, inputSchema: REPORT_SCHEMA, isDeferred: true })
 
@@ -466,6 +504,46 @@ export const register: Register = (on, options) => {
       await maybeOpen($, r, autoOpen)
     }
 
+    // A call that changes an account: its card is ready before you are asked to approve it.
+    const pieceKind = det.kind === 'write' ? kindOf(tool) : undefined
+
+    if (pieceKind !== undefined) {
+      try {
+        const rv0 = await read($, review)
+        const lg0 = await read($, lang)
+        const acct = String(input.ad_account_id ?? '').replace(/^act_/i, '')
+        const logged = await read($, calls)
+        const currency =
+          rv0?.accounts.find(a => accountKey(a.id) === acct && a.currency)?.currency ?? rv0?.currency ?? logged.find(c => c.currency)?.currency
+        const metaAccounts = (rv0?.accounts ?? []).filter(a => /meta|facebook/i.test(a.platform)).map(a => accountKey(a.id))
+        const base = pieceOf(tool, input, {
+          lang: lg0,
+          currency,
+          budgetCap,
+          namePattern,
+          accounts: metaAccounts,
+          before: (id, field) => findBefore([...sources.values()], id, field),
+        })
+        const isLink = (f: LaunchFact): f is Extract<LaunchFact, { k: 'link' }> => f.k === 'link'
+        const earlier = (rv0?.launch ?? []).flatMap(p => p.facts.filter(isLink).map(f => domainOf(f.url)))
+        const link = base.facts.find(isLink)
+
+        if (link && earlier.length > 0 && !earlier.includes(domainOf(link.url))) base.alerts.push({ level: 'info', code: 'otherDomain', v: domainOf(link.url) })
+
+        const piece: LaunchPiece = { ...base, n, at: startedAt, platform: det.platform, state: 'waiting' }
+
+        await update($, review, cur => (cur === null ? cur : { ...cur, launch: [...(cur.launch ?? []), piece].slice(-40) }))
+        // The first piece, and every go-live, put the panel in front: that is when you approve.
+        if (autoOpen && (pieceKind === 'activate' || (rv0?.launch ?? []).length === 0)) await openPane($)
+      } catch {
+        // The card is extra: the call goes on without it.
+      }
+
+      if (pieceKind === 'activate') await say($, 'm_launch', 'launch')
+      else if (pieceKind === 'delete' || pieceKind === 'other') await say($, 'm_write', 'alert')
+      else await say($, 'm_build', 'build')
+    }
+
     const ran = early ?? (await next(e))
     const ms = (await $.clock.now()) - startedAt
     const done: Partial<CallLog> = { ms }
@@ -508,6 +586,28 @@ export const register: Register = (on, options) => {
     }
 
     await update($, calls, list => list.map(c => (c.n === n ? { ...c, ...done } : c)))
+
+    if (pieceKind !== undefined) {
+      const raw = ran.text ?? (typeof ran.result === 'string' ? ran.result : JSON.stringify(ran.result ?? ''))
+      const res = ran.deny === undefined && !ran.isError ? resultOf(pieceKind, raw) : undefined
+      const state: LaunchPiece['state'] =
+        ran.deny !== undefined ? 'denied' : ran.isError || done.status === 'error' || res?.error !== undefined ? 'error' : 'ok'
+      const extra: LaunchAlert[] = []
+
+      if (state === 'denied') extra.push({ level: 'info', code: 'denied' })
+      if (state === 'error') extra.push({ level: 'danger', code: 'refused', v: (res?.error ?? done.error ?? raw).slice(0, 240) })
+      if (res && res.errors > 0) extra.push({ level: 'warn', code: 'validation', n: res.errors })
+      if (state === 'ok' && res?.result === 'ACTIVE' && ['campaign', 'adset', 'ad', 'boost'].includes(pieceKind)) extra.push({ level: 'danger', code: 'bornActive' })
+
+      await update($, review, cur =>
+        cur === null
+          ? cur
+          : {
+              ...cur,
+              launch: (cur.launch ?? []).map(p => (p.n === n ? { ...p, state, id: res?.id ?? p.id, result: res?.result ?? p.result, alerts: [...p.alerts, ...extra] } : p)),
+            },
+      )
+    }
 
     // A script's command named its account but not its platform: the output did.
     if (det.platform === 'Ads' && done.platform !== undefined && done.platform !== 'Ads' && x.accounts.length > 0) {
@@ -558,7 +658,10 @@ export const register: Register = (on, options) => {
 
     const m = await read($, mascot)
 
-    if (det.kind === 'write') await say($, 'm_write', 'alert')
+    if (pieceKind !== undefined && (done.status === 'error' || ran.deny !== undefined)) await say($, 'm_error', 'oops')
+    else if (pieceKind === 'activate') await say($, 'm_live', 'launch')
+    else if (pieceKind === 'delete' || pieceKind === 'other') await say($, 'm_write', 'alert')
+    else if (pieceKind !== undefined) await say($, 'm_built', 'build')
     else if (done.status === 'error' || done.status === 'denied') await say($, 'm_error', 'oops')
     else if (done.status === 'empty') await say($, 'm_empty', 'empty')
     else if (!isNew && (m === null || m.key === 'm_start' || m.key === 'm_paused' || m.key === 'm_hello')) await say($, 'm_fetch', 'fetch')
@@ -636,6 +739,12 @@ export const register: Register = (on, options) => {
       return { text: `Media Review Panel: ${t.sample}` }
     }
 
+    if (arg === 'demo launch' || arg === 'demo subida') {
+      await loadDemo($, true)
+
+      return { text: `Media Review Panel: ${t.sample}` }
+    }
+
     if (arg === 'clear') {
       await update($, review, () => null)
       await update($, calls, () => [])
@@ -668,7 +777,7 @@ export const register: Register = (on, options) => {
     }
 
     if (arg !== '') {
-      return { text: 'Usage: /media-review [demo | clear | simple | full | mute | unmute | en | pt]' }
+      return { text: 'Usage: /media-review [demo | demo launch | clear | simple | full | mute | unmute | en | pt]' }
     }
 
     if ((await read($, mascot)) === null) await say($, 'm_hello', 'hello')
@@ -681,7 +790,7 @@ export const register: Register = (on, options) => {
     const E = $.ui.resolve(e)
     const { Box, Text, Button, Link, Code, Progress } = E
     const Svg = e.surface === 'terminal' ? undefined : (E as { Svg?: ElementConstructor<SvgProps> }).Svg
-    const [rv, allCalls, m, col, oc, isMuted, lg, tables, allCallsShown, view] = await Promise.all([
+    const [rv, allCalls, m, col, oc, isMuted, lg, tables, allCallsShown, view, openP] = await Promise.all([
       read($, review),
       read($, calls),
       read($, mascot),
@@ -692,6 +801,7 @@ export const register: Register = (on, options) => {
       read($, openTables),
       read($, showAllCalls),
       read($, mode),
+      read($, openPieces),
     ])
     const t = strings(lg)
     const isSimple = view === 'simple'
@@ -706,9 +816,10 @@ export const register: Register = (on, options) => {
     const mood: Mood = isAsleep ? 'sleep' : (m?.mood ?? 'hello')
     const bubble = mascotText(lg, isAsleep ? 'm_sleep' : (m?.key ?? 'm_hello'))
     // What needs a second look, found by the panel or reported by Claude.
-    const alerts = rv === null ? [] : [...answerWarnings(rv, lg), ...rv.warnings, ...autoWarnings(rv, list, lg)]
+    const alerts = rv === null ? [] : [...launchWarnings(rv, lg), ...answerWarnings(rv, lg), ...rv.warnings, ...autoWarnings(rv, list, lg)]
     const statusWord = t[`status_${status}` as 'status_idle']
-    const title = rv?.title ?? (rv?.isAuto ? t.autoTitle : t.untitled)
+    const isLaunchOnly = rv !== null && (rv.launch ?? []).length > 0 && rv.datasets.length === 0 && rv.periods.length === 0
+    const title = rv?.title ?? (isLaunchOnly ? t.launchTitle : rv?.isAuto ? t.autoTitle : t.untitled)
     const progress =
       steps.length > 0 ? (
         <Progress label={t.sec_status} value={stepsDone} max={steps.length} valueText={t.stepsDone(stepsDone, steps.length)} color={C.accent} />
@@ -1549,7 +1660,8 @@ export const register: Register = (on, options) => {
         ) : null}
       </Box>
     )
-    const tiles = rv ? (
+    // A launch with nothing read yet has no period or checked numbers to show.
+    const tiles = rv && !isLaunchOnly ? (
       <Box flexDirection="row" flexWrap="wrap" gap={1}>
         {tile(t.tileAccounts, String(rv.accounts.length), platforms.join(lg === 'pt' ? ' e ' : ' and '))}
         {tile(
@@ -1620,6 +1732,221 @@ export const register: Register = (on, options) => {
       return out
     }
     const answerCard = ans ? card(t.ansTitle, answerLines()) : null
+
+    // A launch: an assembly line, the card of the piece at hand, and the receipt.
+    const pieces = rv?.launch ?? []
+    const ALERT_GLYPH: Record<string, [string, string]> = { danger: ['✕', C.err], warn: ['⚠', C.warnText], info: ['ℹ', C.infoText] }
+    const STATE_GLYPH: Record<LaunchPiece['state'], [string, string]> = { waiting: ['…', C.accent], ok: ['✓', C.okText], error: ['✕', C.err], denied: ['⊘', C.muted] }
+    const stationOf = (label: string, list: LaunchPiece[]): BeltStation => {
+      const live = list.filter(p => p.state !== 'denied')
+
+      return {
+        label,
+        state: live.some(p => p.state === 'waiting') ? 'now' : live.some(p => p.state === 'ok') ? 'done' : live.some(p => p.state === 'error') ? 'error' : 'todo',
+        count: live.filter(p => p.state === 'ok').length,
+      }
+    }
+    const goLive = pieces.filter(p => p.kind === 'activate' || (p.state === 'ok' && p.result === 'ACTIVE'))
+    const stations: BeltStation[] = [
+      stationOf(t.st_campaign, pieces.filter(p => p.kind === 'campaign')),
+      stationOf(t.st_adset, pieces.filter(p => p.kind === 'adset')),
+      stationOf(t.st_creative, pieces.filter(p => p.kind === 'creative' || p.kind === 'media')),
+      stationOf(t.st_ad, pieces.filter(p => p.kind === 'ad' || p.kind === 'boost')),
+      stationOf(t.st_live, goLive),
+    ]
+    const STATION_MARK = { todo: '○', now: '…', done: '✓', error: '✕' } as const
+    const beltLine = stations.map(st => `${st.label} ${STATION_MARK[st.state]}${st.count > 1 ? `×${st.count}` : ''}`).join(' › ')
+    const isLiveNow = goLive.some(p => p.state === 'ok')
+    const current = [...pieces].reverse().find(p => p.state === 'waiting') ?? pieces[pieces.length - 1]
+    const togglePiece = (n: number) => update($, openPieces, xs => (xs.includes(n) ? xs.filter(x => x !== n) : [...xs, n].slice(-20)))
+    const pieceTitle = (p: LaunchPiece) => `${pieceKindName(p, lg)}${p.name ? `: ${p.name}` : ''}`
+    const fichaOf = (p: LaunchPiece): RenderElement[] => {
+      const facts = p.facts.map(f => factText(f, lg, rv?.currency)).filter((f): f is NonNullable<ReturnType<typeof factText>> => f !== undefined)
+      const notes = p.alerts.map(a => launchAlertText(a, p, lg, rv?.currency)).filter((a): a is NonNullable<ReturnType<typeof launchAlertText>> => a !== undefined)
+      const [mark, markColor] = STATE_GLYPH[p.state]
+      const out: RenderElement[] = [
+        <Box flexDirection="row" flexWrap="wrap" gap={1}>
+          <Text color={C.bright} weight="semibold">
+            {pieceTitle(p)}
+          </Text>
+          {pill(`${mark} ${pieceStateText(p, lg)}`, p.state === 'ok' ? C.okText : p.state === 'waiting' ? C.bright : C.warnText, p.state === 'ok' ? C.okBg : p.state === 'waiting' ? C.grid : C.warnBg)}
+        </Box>,
+      ]
+
+      // Going live: what goes live with it, for a last look before the approval.
+      const scope = liveScope(p, pieces)
+
+      if (scope.length > 0) {
+        out.push(
+          <Text size="caption" weight="semibold" color={C.muted}>
+            {t.goesLiveWith.toUpperCase()}
+          </Text>,
+        )
+        for (const x of scope) {
+          out.push(
+            <Box flexDirection="column" backgroundColor={C.grid} paddingX={1}>
+              <Text size="footnote" weight="semibold" color={C.bright}>
+                {pieceTitle(x.piece)}
+              </Text>
+              {x.facts
+                .map(f => factText(f, lg, rv?.currency))
+                .filter((f): f is NonNullable<ReturnType<typeof factText>> => f !== undefined)
+                .map(f => (
+                  <Text size="footnote" color={C.text}>
+                    <Text color={C.muted}>{`${f.label}: `}</Text>
+                    <Text weight={f.isBig ? 'semibold' : undefined} color={C.bright}>
+                      {f.value}
+                    </Text>
+                    {f.note && /^!/.test(f.note) ? <Text color={C.warnText}>{`  ${f.note}`}</Text> : null}
+                  </Text>
+                ))}
+            </Box>,
+          )
+        }
+      }
+
+      for (const f of facts) {
+        out.push(
+          <Box flexDirection="column">
+            <Text size="caption" color={C.muted}>
+              {f.label}
+            </Text>
+            {f.value ? (
+              <Text size={f.isBig ? 'heading' : 'footnote'} weight={f.isBig ? 'semibold' : undefined} color={C.bright}>
+                {f.value}
+              </Text>
+            ) : null}
+            {f.note ? (
+              <Text size="caption" color={/^!/.test(f.note) ? C.warnText : /^✓/.test(f.note) ? C.okText : C.dim}>
+                {f.note}
+              </Text>
+            ) : null}
+          </Box>,
+        )
+      }
+
+      for (const a of notes) {
+        const [g, color] = ALERT_GLYPH[a.level] ?? ['ℹ', C.infoText]
+
+        out.push(
+          <Box flexDirection="row" gap={1}>
+            <Box width={2}>
+              <Text color={color} weight="semibold">
+                {g}
+              </Text>
+            </Box>
+            <Box flexDirection="column" flexShrink={1}>
+              <Text color={C.bright} weight="medium" size="footnote">
+                {a.title}
+              </Text>
+              {a.body ? (
+                <Text size="footnote" color={C.muted}>
+                  {a.body}
+                </Text>
+              ) : null}
+              {a.todo ? (
+                <Text size="footnote" color={C.text}>
+                  <Text weight="semibold" color={C.bright}>
+                    {t.whatToDo}
+                  </Text>
+                  {a.todo}
+                </Text>
+              ) : null}
+            </Box>
+          </Box>,
+        )
+      }
+
+      const href = managerLink(p)
+
+      if (href) out.push(<Link href={href} label={`${t.openManager} ↗`} />)
+
+      return out
+    }
+    const missing = missingOf(pieces)
+    const launchLines = (): RenderElement[] => {
+      if (pieces.length === 0) return []
+
+      const out: RenderElement[] = [
+        <Text size="footnote" color={C.muted}>
+          {t.launchSummary(
+            pieces.filter(p => p.state === 'ok').length,
+            pieces.filter(p => p.state === 'waiting').length,
+            pieces.filter(p => p.state === 'error').length,
+          )}
+        </Text>,
+        Svg ? (
+          <Svg
+            source={beltChart({ stations, isLive: isLiveNow, isMoving: pieces.some(p => p.state === 'waiting'), width: chartW })}
+            alt={t.beltAlt(beltLine)}
+          />
+        ) : (
+          <Text mono size="caption" color={C.text}>
+            {beltLine}
+          </Text>
+        ),
+      ]
+
+      if (current) {
+        out.push(
+          <Box flexDirection="column" borderStyle="round" borderColor={current.state === 'waiting' ? C.accent : C.border2} paddingX={1} paddingY={1} gap={1}>
+            {fichaOf(current)}
+          </Box>,
+        )
+      }
+
+      if (pieces.length > 1 || missing.length > 0) {
+        out.push(
+          <Text color={C.muted} weight="semibold" size="caption">
+            {t.receiptTitle.toUpperCase()}
+          </Text>,
+        )
+
+        for (const p of pieces) {
+          const [g, color] = STATE_GLYPH[p.state]
+          const isOpen = openP.includes(p.n) && p !== current
+
+          out.push(
+            <Button key={`piece-${p.n}`} plain onPress={() => togglePiece(p.n)}>
+              <Text size="footnote" color={C.text}>
+                <Text color={color} weight="semibold">
+                  {`${g} `}
+                </Text>
+                {pieceTitle(p)}
+                <Text color={C.dim}>{`  ${p.id ? `ID ${p.id} · ` : ''}${pieceStateText(p, lg)}`}</Text>
+              </Text>
+            </Button>,
+          )
+          if (isOpen) {
+            out.push(
+              <Box flexDirection="column" borderStyle="round" borderColor={C.border2} paddingX={1} gap={1}>
+                {fichaOf(p)}
+              </Box>,
+            )
+          }
+        }
+
+        if (missing.length > 0) {
+          out.push(
+            <Text size="footnote" weight="semibold" color={C.bright}>
+              {t.stillMissing}
+            </Text>,
+          )
+          for (const x of missing) {
+            const nm = x.under.name ?? t.unnamed
+
+            out.push(
+              <Text size="footnote" color={C.muted}>
+                {`○ ${x.kind === 'adset' ? t.miss_adset(nm) : t.miss_ad(nm)}`}
+              </Text>,
+            )
+          }
+        }
+      }
+
+      return out
+    }
+    const launchCard = pieces.length > 0 ? card(t.launchTitle, launchLines()) : null
 
     // The steps as a path: done, happening now, still to come.
     const stepsCard =
@@ -2002,6 +2329,7 @@ export const register: Register = (on, options) => {
           {rv === null ? whatIs : null}
           {sampleBanner}
           {attention}
+          {launchCard}
           {tiles}
           {answerCard}
           {stepsCard}
@@ -2029,6 +2357,7 @@ export const register: Register = (on, options) => {
         {header}
         {sample}
         {alertStrip}
+        {pieces.length > 0 ? section('launch', t.sec_launch, `${pieces.filter(p => p.state === 'ok').length}/${pieces.length}`, launchLines) : null}
         {ans ? section('answer', t.sec_answer, ans.total > 0 ? `${ans.found}/${ans.total}` : undefined, answerLines) : null}
         {section('accounts', t.sec_accounts, String(rv?.accounts.length ?? 0), accountsBody)}
         {section('status', t.sec_status, steps.length ? `${stepsDone}/${steps.length}` : undefined, statusBody)}

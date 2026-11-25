@@ -1,9 +1,10 @@
 // SAMPLE DATA for /media-review demo. Every account, name and number here is
 // made up, and the panel labels the review as sample data wherever it shows.
 
-import type { CallLog, Lang, Review } from '../types'
+import type { CallLog, Lang, LaunchPiece, Review } from '../types'
 import { checkAnswer } from './answer'
 import { numberIndex } from './detect'
+import { pieceOf } from './launch'
 import { datasetOf } from './review'
 
 // A sample final answer: most numbers are in the sample data, a total adds up its
@@ -215,4 +216,115 @@ export const buildDemo = (now: number, lang: Lang = 'en'): Demo => {
   review.answer = checkAnswer(pt ? ANSWER_PT : ANSWER_EN, numberIndex([...sources.values()].join('\n')), [], now, lang)
 
   return { review, calls, sources, counter: 5 }
+}
+
+/**
+ * The sample launch, for /media-review demo launch: a campaign, an ad set, a
+ * creative and an ad built and paused, then a go-live that waits for your OK.
+ * Every name says SAMPLE (EXEMPLO), and the account is all zeros.
+ */
+export const buildLaunchDemo = (now: number, lang: Lang = 'en'): Demo => {
+  const pt = lang === 'pt'
+  const L = (en: string, ptText: string) => (pt ? ptText : en)
+  const acct = '000000000001'
+  const ctx = { lang, currency: 'BRL', accounts: [acct] }
+  const at = (s: number) => now - (6 - s) * 35000
+  const steps: { tool: string; input: Record<string, unknown>; id?: string; result?: string; state: LaunchPiece['state'] }[] = [
+    {
+      tool: 'mcp__meta__ads_create_campaign',
+      input: { ad_account_id: acct, campaign_name: L('SAMPLE | Leads | Demo Store', 'EXEMPLO | Cadastros | Loja Demo'), objective: 'OUTCOME_LEADS', buying_type: 'AUCTION', campaign_daily_budget: 5000, campaign_stop_time: '2026-12-15T23:59:00-0300' },
+      id: '120000000000001',
+      result: 'PAUSED',
+      state: 'ok',
+    },
+    {
+      tool: 'mcp__meta__ads_create_ad_set',
+      input: {
+        ad_account_id: acct,
+        campaign_id: '120000000000001',
+        ad_set_name: L('SAMPLE | Recife | 25-45', 'EXEMPLO | Recife | 25-45'),
+        optimization_goal: 'LEAD_GENERATION',
+        billing_event: 'IMPRESSIONS',
+        targeting: JSON.stringify({ geo_locations: { countries: ['BR'], cities: [{ key: '0', name: 'Recife', radius: 15, distance_unit: 'kilometer' }] }, age_range: [25, 45] }),
+      },
+      id: '120000000000002',
+      result: 'PAUSED',
+      state: 'ok',
+    },
+    {
+      tool: 'mcp__meta__ads_create_creative',
+      input: {
+        ad_account_id: acct,
+        page_id: '0',
+        name: L('SAMPLE | Sign-up | image', 'EXEMPLO | Cadastro | imagem'),
+        link_url: 'https://example.com/cadastro',
+        image_hash: 'sample',
+        call_to_action_type: 'SIGN_UP',
+        message: L('SAMPLE. Sign up and get 10% off your first order.', 'EXEMPLO. Faça o cadastro e ganhe 10% na primeira compra.'),
+      },
+      id: '120000000000003',
+      state: 'ok',
+    },
+    {
+      tool: 'mcp__meta__ads_create_ad',
+      input: { ad_account_id: acct, ad_set_id: '120000000000002', ad_name: L('SAMPLE | Sign-up | image', 'EXEMPLO | Cadastro | imagem'), creative: '{"creative_id":"120000000000003"}' },
+      id: '120000000000004',
+      result: 'PAUSED',
+      state: 'ok',
+    },
+    {
+      tool: 'mcp__meta__ads_activate_entity',
+      input: { ad_account_id: acct, entity_id: '120000000000001', entity_type: 'campaign' },
+      state: 'waiting',
+    },
+  ]
+  const launch: LaunchPiece[] = steps.map((s, i) => ({
+    ...pieceOf(s.tool, s.input, ctx),
+    n: i + 1,
+    at: at(i + 1),
+    platform: 'Meta Ads',
+    state: s.state,
+    id: s.id,
+    result: s.result,
+  }))
+  const calls: CallLog[] = steps.map((s, i) => ({
+    n: i + 1,
+    id: `demo-launch-${i + 1}`,
+    tool: s.tool,
+    label: s.tool.split('__').pop() ?? s.tool,
+    platform: 'Meta Ads',
+    kind: 'write',
+    params: Object.entries(s.input).slice(0, 6).map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v)] as [string, string]),
+    accounts: [`act_${acct}`],
+    dates: [],
+    fields: [],
+    status: s.state === 'waiting' ? 'running' : 'ok',
+    rows: s.state === 'waiting' ? undefined : 1,
+    flags: [],
+    startedAt: at(i + 1),
+    ms: s.state === 'waiting' ? undefined : 900,
+    input: JSON.stringify(s.input, null, 2).slice(0, 4000),
+  }))
+  const review: Review = {
+    id: `demo-launch${now}`,
+    title: L('SAMPLE: launching the sign-up campaign, Demo Store', 'EXEMPLO: subida da campanha de cadastros, Loja Demo'),
+    status: 'running',
+    isAuto: false,
+    isDemo: true,
+    startedAt: at(0),
+    updatedAt: now,
+    firstCall: 1,
+    accounts: [{ platform: 'Meta Ads', id: `act_${acct}`, name: L('SAMPLE Demo Store (Meta)', 'EXEMPLO Loja Demo (Meta)'), currency: 'BRL', timezone: 'America/Sao_Paulo', origin: 'reported', calls: [1, 2, 3, 4, 5] }],
+    steps: [],
+    levelsSeen: [],
+    periods: [],
+    datasets: [],
+    assumptions: [],
+    warnings: [],
+    reports: 0,
+    currency: 'BRL',
+    launch,
+  }
+
+  return { review, calls, sources: new Map(), counter: steps.length }
 }

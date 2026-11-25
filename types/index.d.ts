@@ -117,6 +117,75 @@ export type Review = {
   reports: number
   /** The numbers of Claude's last answer in this review, checked when the turn ended. */
   answer?: AnswerCheck
+  /** What Claude builds or changes in an ad account, piece by piece, read from each call. */
+  launch?: LaunchPiece[]
+}
+
+/** One piece of a launch: what a call that changes an account creates or changes. */
+export type PieceKind = 'campaign' | 'adset' | 'creative' | 'ad' | 'boost' | 'media' | 'update' | 'activate' | 'duplicate' | 'delete' | 'other'
+
+/** waiting: sent, before or during your approval; ok: done; error: refused by the platform; denied: you said no. */
+export type PieceState = 'waiting' | 'ok' | 'error' | 'denied'
+
+/** A fact of a piece, kept as data so the panel words it in its own language. */
+export type LaunchFact =
+  | { k: 'budget'; cadence: 'daily' | 'total' | 'cap' | 'bid'; amount: number; minor: number; currency?: string }
+  | { k: 'dates'; start?: string; end?: string }
+  | { k: 'objective'; v: string }
+  | { k: 'goal'; v: string }
+  | { k: 'where'; v: string }
+  | { k: 'ages'; min?: number; max?: number; isSuggestion?: boolean }
+  | { k: 'audience'; v: 'advantage' | 'manual' }
+  | { k: 'link'; url: string; hasUtm: boolean }
+  | { k: 'button'; v: string }
+  | { k: 'text'; v: string }
+  | { k: 'headline'; v: string }
+  | { k: 'media'; v: 'image' | 'video' | 'carousel' | 'post' | 'multi' | 'catalog' | 'creative' | 'file'; count?: number; ref?: string }
+  | { k: 'change'; field: string; to: string; from?: string; amounts?: [number | undefined, number]; currency?: string }
+  | { k: 'copies'; n: number }
+  | { k: 'category'; v: string }
+  | { k: 'target'; entity: string; id: string }
+
+export type LaunchAlertCode =
+  | 'cents'
+  | 'over'
+  | 'jump'
+  | 'lifetimeNoEnd'
+  | 'noEnd'
+  | 'noUtm'
+  | 'otherDomain'
+  | 'goesLive'
+  | 'bornActive'
+  | 'otherAccount'
+  | 'nameRule'
+  | 'validation'
+  | 'refused'
+  | 'denied'
+  | 'deleteForever'
+  | 'noDetails'
+
+export type LaunchAlert = { level: 'danger' | 'warn' | 'info'; code: LaunchAlertCode; v?: string; n?: number }
+
+export type LaunchPiece = {
+  /** The call number in the panel's log. */
+  n: number
+  kind: PieceKind
+  tool: string
+  platform: string
+  state: PieceState
+  at: number
+  name?: string
+  /** The ID the platform gave back. */
+  id?: string
+  /** The campaign of an ad set, the ad set of an ad. */
+  parent?: string
+  account?: string
+  /** campaign, ad_set or ad, for a change or an activation. */
+  entity?: string
+  /** What the platform answered: DRAFT, PAUSED, ACTIVE, PUBLISHING. */
+  result?: string
+  facts: LaunchFact[]
+  alerts: LaunchAlert[]
 }
 
 export type CallStatus = 'running' | 'ok' | 'empty' | 'error' | 'denied'
@@ -164,6 +233,8 @@ export type Mood =
   | 'pause'
   | 'clean'
   | 'demo'
+  | 'build'
+  | 'launch'
 
 export type Mascot = { key: string; detail?: string; mood: Mood; at: number }
 
@@ -184,6 +255,7 @@ declare module 'claude-code' {
       lang: Lang
       counter: number
       mode: ViewMode
+      openPieces: number[]
     }
   }
 }

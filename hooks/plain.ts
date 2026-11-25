@@ -2,10 +2,10 @@
 // with a next step, natural dates, friendly names for metrics and settings.
 // Pure functions, so the tests can check every sentence.
 
-import type { CallLog, Dataset, Lang, Review } from '../types'
+import type { CallLog, Dataset, Lang, LaunchAlert, LaunchFact, LaunchPiece, Review } from '../types'
 import { fmt } from './charts'
 import { toNumber } from './detect'
-import { levelName, strings } from './i18n'
+import { buttonName, goalName, levelName, objectiveName, strings } from './i18n'
 import { isCovered, spansOf } from './review'
 
 export type Alert = { level: 'danger' | 'warn' | 'info'; title: string; body?: string; todo?: string }
@@ -152,6 +152,11 @@ export const nowLine = (review: Review | null, lang: Lang): string => {
   const step = review.steps.find(s => s.status === 'fetching' || s.status === 'analyzing')
 
   if (step) return step.status === 'fetching' ? t.now_fetching(step.label) : t.now_analyzing(step.label)
+
+  // A piece of a launch waiting for your approval says what it is.
+  const waiting = [...(review.launch ?? [])].reverse().find(p => p.state === 'waiting')
+
+  if (waiting) return t.now_building(`${pieceKindName(waiting, lang).toLowerCase()}${waiting.name ? ` “${waiting.name}”` : ''}`)
   if (review.status === 'running') return t.now_running
 
   return t.now_idle
@@ -213,6 +218,177 @@ const missingExample = (ds: Dataset, lang: Lang, currency?: string): string | un
 
 const DATE_PAIR = /(\d{4}-\d{2}-\d{2})\s*→\s*(\d{4}-\d{2}-\d{2})/
 
+/** A day of an ISO date or time, in words: 26 de novembro de 2026. */
+const dayOf = (iso: string, lang: Lang): string => {
+  const d = iso.slice(0, 10)
+
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? naturalRange(d, d, lang) : iso
+}
+
+/** The name a person reads for each kind of piece. */
+export const pieceKindName = (p: LaunchPiece, lang: Lang): string => {
+  const t = strings(lang) as unknown as Record<string, string>
+
+  return t[`k_${p.kind}`] ?? p.kind
+}
+
+/** What the platform made of a piece, in words. */
+export const pieceStateText = (p: LaunchPiece, lang: Lang): string => {
+  const t = strings(lang)
+
+  if (p.state === 'waiting') return t.ps_waiting
+  if (p.state === 'denied') return t.ps_denied
+  if (p.state === 'error') return t.ps_error
+  if (p.result === 'DRAFT') return t.ps_draft
+  if (p.result === 'ACTIVE') return t.ps_active
+  if (p.result === 'PUBLISHING') return t.ps_publishing
+  if (p.result === 'PAUSED') return t.ps_paused
+
+  return t.ps_ok
+}
+
+/** One line of a piece's card: a label and its value, in plain words. */
+export const factText = (f: LaunchFact, lang: Lang, fallbackCurrency?: string): { label: string; value: string; note?: string; isBig?: boolean } | undefined => {
+  const t = strings(lang)
+  const tt = t as unknown as Record<string, string>
+  const money = (v: number, cur?: string) => fmt(v, lang, 'currency', cur ?? fallbackCurrency)
+
+  switch (f.k) {
+    case 'budget': {
+      const label = f.cadence === 'daily' ? t.f_daily : f.cadence === 'total' ? t.f_total : f.cadence === 'cap' ? t.f_cap : t.f_bid
+
+      return { label, value: money(f.amount, f.currency), note: t.f_minor(String(f.minor)), isBig: f.cadence === 'daily' || f.cadence === 'total' }
+    }
+    case 'dates':
+      return {
+        label: t.f_dates,
+        value: f.start && f.end ? t.dateRange(dayOf(f.start, lang), dayOf(f.end, lang)) : f.start ? t.dateFrom(dayOf(f.start, lang)) : t.dateUntil(dayOf(f.end ?? '', lang)),
+      }
+    case 'objective':
+      return { label: t.f_objective, value: objectiveName(lang, f.v) }
+    case 'goal':
+      return { label: t.f_goal, value: goalName(lang, f.v) }
+    case 'where':
+      return { label: t.f_where, value: f.v }
+    case 'ages': {
+      const range = t.agesRange(f.min === undefined ? '18' : String(f.min), f.max === undefined ? '65+' : String(f.max))
+
+      return { label: t.f_ages, value: f.isSuggestion ? `${range}, ${t.agesSuggested}` : range }
+    }
+    case 'audience':
+      return { label: t.f_audience, value: f.v === 'manual' ? t.aud_manual : t.aud_advantage }
+    case 'link':
+      return { label: t.f_link, value: f.url.replace(/^https?:\/\//i, ''), note: f.hasUtm ? t.withUtm : t.withoutUtm }
+    case 'button':
+      return { label: t.f_button, value: buttonName(lang, f.v) }
+    case 'text':
+      return { label: t.f_text, value: `“${f.v}”` }
+    case 'headline':
+      return { label: t.f_headline, value: `“${f.v}”` }
+    case 'media': {
+      const value =
+        f.v === 'carousel'
+          ? t.media_carousel(f.count ?? 0)
+          : f.v === 'multi'
+            ? t.media_multi(f.count ?? 0)
+            : f.v === 'creative'
+              ? t.media_creative(f.ref ?? '')
+              : f.v === 'file'
+                ? t.media_file(f.ref ?? '')
+                : (tt[`media_${f.v}`] ?? f.v)
+
+      return { label: t.f_media, value }
+    }
+    case 'change': {
+      const field = tt[`ch_${f.field}`] ?? f.field.replace(/_/g, ' ')
+
+      if (f.amounts) {
+        const [from, to] = f.amounts
+
+        return {
+          label: t.f_change,
+          value: from === undefined ? t.changeTo(field, money(to, f.currency)) : t.changeFromTo(field, money(from, f.currency), money(to, f.currency)),
+          isBig: true,
+        }
+      }
+
+      const to = f.field === 'status' ? (tt[`sv_${f.to}`] ?? f.to.toLowerCase()) : /_time$/.test(f.field) ? dayOf(f.to, lang) : f.to
+
+      return { label: t.f_change, value: t.changeTo(field, to) }
+    }
+    case 'copies':
+      return { label: t.f_copies(f.n), value: '' }
+    case 'category':
+      return { label: t.f_category, value: f.v.toLowerCase().replace(/_/g, ' ') }
+    case 'target':
+      return { label: t.f_target, value: `${tt[`e_${f.entity}`] ?? f.entity} ${f.id}`.trim() }
+  }
+
+  return undefined
+}
+
+/** An alert of a piece, in plain words. Alerts about what would happen fade once it happened. */
+export const launchAlertText = (a: LaunchAlert, p: LaunchPiece, lang: Lang, fallbackCurrency?: string): Alert | undefined => {
+  const t = strings(lang)
+  const budget = p.facts.find((f): f is Extract<LaunchFact, { k: 'budget' }> => f.k === 'budget')
+  const money = (v: number) => fmt(v, lang, 'currency', budget?.currency ?? fallbackCurrency)
+
+  if ((a.code === 'goesLive' || a.code === 'deleteForever') && p.state !== 'waiting') return undefined
+
+  switch (a.code) {
+    case 'cents':
+      return { level: a.level, title: t.la_cents_t, body: t.la_cents_b(a.v ?? '', money(Number(a.v ?? 0) / 100)), todo: t.la_cents_d }
+    case 'over':
+      return { level: a.level, title: t.la_over_t(money(Number(a.v ?? 0))), todo: t.la_over_d }
+    case 'jump':
+      return { level: a.level, title: t.la_jump_t(a.n ?? 0), todo: t.la_jump_d }
+    case 'lifetimeNoEnd':
+      return { level: a.level, title: t.la_lifetimeNoEnd_t, body: t.la_lifetimeNoEnd_b }
+    case 'noEnd':
+      return { level: a.level, title: t.la_noEnd_t, body: t.la_noEnd_b }
+    case 'noUtm':
+      return { level: a.level, title: t.la_noUtm_t, body: t.la_noUtm_b, todo: t.la_noUtm_d }
+    case 'otherDomain':
+      return { level: a.level, title: t.la_otherDomain_t, body: t.la_otherDomain_b(a.v ?? '') }
+    case 'goesLive':
+      return { level: a.level, title: t.la_goesLive_t, todo: t.la_goesLive_d }
+    case 'bornActive':
+      return { level: a.level, title: t.la_bornActive_t, body: t.la_bornActive_b }
+    case 'otherAccount':
+      return { level: a.level, title: t.la_otherAccount_t, body: t.la_otherAccount_b(a.v ?? '') }
+    case 'nameRule':
+      return { level: a.level, title: t.la_nameRule_t, body: t.la_nameRule_b(a.v ?? '') }
+    case 'validation':
+      return { level: a.level, title: t.la_validation_t(a.n ?? 1), body: t.la_validation_b }
+    case 'refused':
+      return { level: a.level, title: t.la_refused_t, body: a.v }
+    case 'denied':
+      return { level: a.level, title: t.la_denied_t, body: t.la_denied_b }
+    case 'deleteForever':
+      return { level: a.level, title: t.la_deleteForever_t, todo: t.la_deleteForever_d }
+    case 'noDetails':
+      return { level: a.level, title: t.la_noDetails_t, body: t.la_noDetails_b }
+  }
+
+  return undefined
+}
+
+// What belongs at the top of the panel: money and things that cannot be undone.
+const URGENT = new Set(['goesLive', 'over', 'cents', 'bornActive', 'refused', 'validation', 'deleteForever', 'jump'])
+
+/** The alerts of a launch that lead the panel, each with its piece named. */
+export const launchAlerts = (review: Review, lang: Lang): Alert[] =>
+  (review.launch ?? []).flatMap(p =>
+    p.alerts
+      .filter(a => URGENT.has(a.code))
+      .map(a => launchAlertText(a, p, lang, review.currency))
+      .filter((a): a is Alert => a !== undefined)
+      .map(a => ({ ...a, title: `${pieceKindName(p, lang)}${p.name ? ` “${p.name}”` : ''}: ${a.title}` })),
+  )
+
+/** The same, one line each, for the Full view's strip. */
+export const launchWarnings = (review: Review, lang: Lang): string[] => launchAlerts(review, lang).map(a => a.title)
+
 /** The alerts a beginner needs, in plain words, each with what to do next. Most serious first. */
 export const plainAlerts = (review: Review, calls: CallLog[], lang: Lang): Alert[] => {
   const t = strings(lang)
@@ -226,9 +402,15 @@ export const plainAlerts = (review: Review, calls: CallLog[], lang: Lang): Alert
   const list = compare ? t.periodsList(main, compare) : main
 
   for (const c of calls) {
-    if (c.kind === 'write') out.push({ level: 'danger', title: t.a_write_t, body: t.a_write_b(c.n, c.label), todo: t.a_write_d })
+    // A change with its own card in the launch is told there, with what it changes.
+    const hasCard = (review.launch ?? []).some(p => p.n === c.n && p.kind !== 'other')
+
+    if (c.kind === 'write' && !hasCard) out.push({ level: 'danger', title: t.a_write_t, body: t.a_write_b(c.n, c.label), todo: t.a_write_d })
     if (c.status === 'error' || c.status === 'denied') out.push({ level: 'danger', title: t.a_error_t, body: t.a_error_b(c.n), todo: t.a_error_d })
   }
+
+  // What Claude is about to change in an account: money first.
+  out.push(...launchAlerts(review, lang))
 
   // What reaches a client is the answer: its numbers lead the warnings.
   const missed = review.answer?.missing.length ?? 0

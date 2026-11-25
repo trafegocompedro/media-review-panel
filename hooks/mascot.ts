@@ -120,6 +120,33 @@ const POSES: Record<Mood, () => Part[]> = {
   clean: () => [...base(), armL, foreR, ...happy, ...blush(12), S(13, 13, ['gg', 'gg']), S(24, 9, Array(11).fill('n'), 'bm'), S(22, 20, ['.nnn.', 'yyyyy', 'yyyyy', 'y.y.y'], 'bm'), S(23, 15, ['.oo.', 'obbo', 'obbo', '.oo.'], 'bm'), S(20, 22, ['S.', 'SS'], 'fxdu1'), S(27, 21, ['S', 'S'], 'fxdu2'), S(17, 1, ['.zz', '.z.', '.z.', 'zz.'], 'fxn')],
   // Sample data: a green graduation cap, a pointer, a chart that grows bar by bar.
   demo: () => [...base(), armL, foreR, ...eyes(8, 1), ...blush(12), S(12, 13, ['gggg', '.pp.'], 'sa'), S(12, 13, ['g..g', '.gg.'], 'sb'), S(6, 4, ['gggggggggggggggg']), S(8, 5, ['dddddddddddd']), S(21, 5, ['y', 'y', 'y']), S(22, 7, ['qqqqqq']), S(22, 5, ['GG', 'GG'], 'l1'), S(24, 3, ['GG', 'GG', 'GG', 'GG'], 'l2'), S(26, 1, ['GG', 'GG', 'GG', 'GG', 'GG', 'GG'], 'l3'), S(24, 8, ['...w', '..n.', '..n.', '.n..', '.n..', 'n...']), handR()],
+  // Building a launch: a hammer up high while the pieces stack up beside it, one by one.
+  build: () => [
+    ...base(),
+    upL,
+    armR,
+    ...eyes(9),
+    ...blush(12),
+    S(13, 13, ['gg']),
+    S(1, 7, ['SSSSS', 'SSSSS', '..n..', '..n..', '..n..', '..n..', '..n..', '..n..'], 'hm'),
+    S(22, 20, ['oooooo', 'obbbbo', 'obgbbo', 'oooooo'], 'l1'),
+    S(23, 16, ['ooooo', 'oGGGo', 'oGGGo', 'ooooo'], 'l2'),
+    S(24, 13, ['ooo', 'oyo', 'ooo'], 'l3'),
+  ],
+
+  // Going live: a rocket on the launch pad, its flame flickering.
+  launch: () => [
+    ...base(),
+    upL,
+    armR,
+    S(9, 9, ['ggg', 'gwg', 'ggg']),
+    S(16, 9, ['ggg', 'gwg', 'ggg']),
+    S(12, 13, ['gggg', '.pp.']),
+    S(21, 0, ['...R...', '..RRR..', '..QQQ..', '..QDQ..', '..QQQ..', '.RQQQR.', 'RR.S.RR'], 'rk'),
+    S(21, 7, ['..yRy..', '...y...'], 'fxfa'),
+    S(21, 7, ['..RyR..', '..yyy..', '...y...'], 'fxfb'),
+    S(20, 11, ['S.....S', '.S...S.'], 'fxsm'),
+  ],
 }
 
 /** Every mood Bip can show, in the order a review goes through them. */
@@ -154,6 +181,8 @@ const CSS =
   '.st-pause .bd{animation-duration:2s}.fxst1,.fxst2{animation:zz 2s steps(4) infinite}.fxst2{animation-delay:-1s}' +
   '.st-clean .bm{animation:swp .5s steps(1) infinite}@keyframes swp{50%{transform:translateX(-1px)}}' +
   '.fxdu1{animation:tw 1s steps(1) infinite}.fxdu2{animation:tw 1s steps(1) infinite -.5s}.fxn{animation:zz 2s steps(4) infinite}' +
+  '.st-build .hm{animation:hammer .5s steps(1) infinite}@keyframes hammer{50%{transform:translateY(2px)}}' +
+  '.st-launch .rk{animation:pump .5s steps(1) infinite}.fxfa{animation:sa .25s steps(1) infinite}.fxfb{animation:sb .25s steps(1) infinite}.fxsm{animation:tw 1s steps(1) infinite}' +
   '@media (prefers-reduced-motion:reduce){.bip *{animation:none!important}.l1,.l2,.l3{opacity:1}}' +
   '</style>'
 
@@ -217,6 +246,8 @@ const FACES: Record<Mood, string> = {
   pause: '[^_^]c',
   clean: '[^o^]~',
   demo: '[^o^]>',
+  build: '[o_o]#',
+  launch: '[O_O]^',
 }
 
 /** The robot for the terminal, which draws no SVG. */

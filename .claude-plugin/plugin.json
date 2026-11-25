@@ -1,7 +1,7 @@
 {
   "name": "media-review-panel",
-  "version": "0.6.0",
-  "description": "Side panel that shows what Claude reads while it analyzes paid media (Google, Meta, TikTok, LinkedIn Ads): each query the panel recognizes, accounts, steps, data level, dates, chart numbers and the numbers of Claude's final answer checked against the account data, and a log of each call it logged. Read-only. Made by Tráfego Com Pedro.",
+  "version": "0.7.0",
+  "description": "Side panel that shows what Claude reads while it analyzes paid media (Google, Meta, TikTok, LinkedIn Ads): each query the panel recognizes, accounts, steps, data level, dates, chart numbers and the numbers of Claude's final answer checked against the account data, a card for each ad Claude builds or changes (Meta), shown before you approve it, and a log of each call it logged. Read-only. Made by Tráfego Com Pedro.",
   "author": {
     "name": "Tráfego Com Pedro",
     "url": "https://www.linkedin.com/in/soupedrosimoes/"
@@ -64,6 +64,18 @@
       "type": "string",
       "title": "Your own data scripts",
       "description": "Names of scripts on this computer that read ad data, separated by commas (for example: my_report.py, fetch_ads.py). Saved only in your local settings, never in the mod's files. Scripts that print raw Google Ads or Meta data are recognized without this.",
+      "default": ""
+    },
+    "budgetAlert": {
+      "type": "string",
+      "title": "Daily budget alert",
+      "description": "A daily budget above this amount, in the account currency (for example 300), turns red in the panel when Claude creates or changes it. Empty: no limit. Saved only in your local settings.",
+      "default": ""
+    },
+    "namePattern": {
+      "type": "string",
+      "title": "Campaign name pattern",
+      "description": "A regular expression every new campaign name should match (for example ^[A-Z]{4}-M\\d{3}). Empty: no check. Saved only in your local settings.",
       "default": ""
     }
   },

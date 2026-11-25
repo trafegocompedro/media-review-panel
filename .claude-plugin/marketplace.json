@@ -8,7 +8,7 @@
     {
       "name": "media-review-panel",
       "source": "./",
-      "description": "Side panel that shows each paid media query Claude makes that the panel recognizes, and checks the numbers of the charts and of Claude's final answer against the account data. Read-only. Made by Tráfego Com Pedro."
+      "description": "Side panel that shows each paid media query Claude makes that the panel recognizes, and checks the numbers of the charts and of Claude's final answer against the account data, and shows each ad Claude builds or changes before you approve it. Read-only. Made by Tráfego Com Pedro."
     }
   ]
 }
