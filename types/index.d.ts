@@ -40,7 +40,35 @@ export type CheckResult = {
   missingSamples: string[]
   /** "row:column" of each number not found, for the table to mark. */
   missingCells: string[]
+  /**
+   * Numbers too common to prove anything: they, or their neighbours, show up
+   * in almost any answer (a small count). Neither found nor missing.
+   */
+  common?: number
+  /** "row:column" of each common number, for the table to mark. */
+  commonCells?: string[]
   note?: string
+}
+
+/** One number of Claude's final answer that the panel could not find. */
+export type AnswerMiss = { text: string; context: string }
+
+/** The numbers of Claude's last answer, looked up in what the session read. */
+export type AnswerCheck = {
+  at: number
+  /** Numbers written in the answer, after dates, IDs and code are set aside. */
+  total: number
+  /** Found in the media queries the panel logged. */
+  found: number
+  /** Of the found, totals that are the sum of a column of the answer's own table. */
+  summed: number
+  /** Not in the media queries, but in another file Claude read or in your message. */
+  elsewhere: number
+  /** Too small or too common to prove anything (a count of 3, 30 days). */
+  common: number
+  /** Not found, and written as a rate, an average, a cost per or a difference. */
+  calculated: number
+  missing: AnswerMiss[]
 }
 
 export type Dataset = {
@@ -87,6 +115,8 @@ export type Review = {
   assumptions: string[]
   warnings: string[]
   reports: number
+  /** The numbers of Claude's last answer in this review, checked when the turn ended. */
+  answer?: AnswerCheck
 }
 
 export type CallStatus = 'running' | 'ok' | 'empty' | 'error' | 'denied'

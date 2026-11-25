@@ -51,7 +51,7 @@ test('sums: without its parts a total is not found, and the wording says it may 
   const review = { datasets: [{ ...dataset([['Meta', 370.92, 58310]]), check: c }], periods: [], warnings: [] } as unknown as Review
   const alert = plainAlerts(review, [], 'pt')[0]
 
-  expect(alert?.title).toBe('2 números não aparecem na fonte')
+  expect(alert?.title).toBe('2 números não estão nos dados da conta')
   expect(alert?.body).toMatch(/total somado pelo Claude ou um número errado/)
   expect(alert?.todo).toMatch(/partes de cada total/)
 })

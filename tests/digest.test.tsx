@@ -141,8 +141,12 @@ for (const surface of ['desktop', 'terminal'] as const) {
     // The list: full terms, the keyword that brought each, and the rest in one line.
     expect(await has(/palavra-chave: running shoes for men/)).toBe(true)
     expect(await has(/^\+ 4 outros com 1 clique cada · R\$ 18,72$/)).toBe(true)
-    // The numbers are still checked, and the table is one press away.
-    expect(await has(/24 de 24 números conferidos/)).toBe(true)
+    // The numbers are still checked, and the table is one press away. In a table
+    // this small, counts and whole costs sit among their neighbours: finding them
+    // proves nothing, so they are set apart, not counted as checked.
+    expect(await has(/7 de 7 números conferidos/)).toBe(true)
+    expect(await has(/17 comuns demais para conferir/)).toBe(true)
+    expect(await has(/24 de 24 números conferidos/)).toBe(false)
     expect(await ui.find({ type: 'Button', key: 'tbl-daily', text: /Ver a tabela completa \(6 linhas\)/ })).toBeDefined()
     expect(await has(/2026-10-05/)).toBe(false)
     await ui.press({ key: 'tbl-daily' })

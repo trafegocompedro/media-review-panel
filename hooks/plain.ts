@@ -170,16 +170,24 @@ export const stepPosition = (review: Review | null): [number, number] | undefine
   return [at + 1, steps.length]
 }
 
-/** Numbers found, missing and calculated across every dataset. */
-export const checkTotals = (review: Review | null): { found: number; missing: number; calculated: number } => {
+/** Numbers found, missing, calculated and too common to check, across every dataset. */
+export const checkTotals = (review: Review | null): { found: number; missing: number; calculated: number; common: number } => {
   const all = review?.datasets ?? []
 
   return {
     found: all.reduce((a, d) => a + d.check.found, 0),
     missing: all.reduce((a, d) => a + d.check.missing, 0),
     calculated: all.reduce((a, d) => a + d.check.calculated, 0),
+    common: all.reduce((a, d) => a + (d.check.common ?? 0), 0),
   }
 }
+
+/** The first numbers of the answer that no query backs, as the person reads them. */
+export const answerSample = (review: Review, max = 3): string =>
+  (review.answer?.missing ?? [])
+    .slice(0, max)
+    .map(m => (m.context ? `${m.text} (${m.context})` : m.text))
+    .join('; ')
 
 // The first number a dataset could not find, named the way a person would say it.
 const missingExample = (ds: Dataset, lang: Lang, currency?: string): string | undefined => {
@@ -221,6 +229,11 @@ export const plainAlerts = (review: Review, calls: CallLog[], lang: Lang): Alert
     if (c.kind === 'write') out.push({ level: 'danger', title: t.a_write_t, body: t.a_write_b(c.n, c.label), todo: t.a_write_d })
     if (c.status === 'error' || c.status === 'denied') out.push({ level: 'danger', title: t.a_error_t, body: t.a_error_b(c.n), todo: t.a_error_d })
   }
+
+  // What reaches a client is the answer: its numbers lead the warnings.
+  const missed = review.answer?.missing.length ?? 0
+
+  if (missed > 0) out.push({ level: 'warn', title: t.a_answer_t(missed), body: t.a_answer_b(answerSample(review)), todo: t.a_answer_d })
 
   for (const ds of review.datasets) {
     if (ds.check.missing > 0) {

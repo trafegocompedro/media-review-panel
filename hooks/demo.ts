@@ -2,7 +2,34 @@
 // made up, and the panel labels the review as sample data wherever it shows.
 
 import type { CallLog, Lang, Review } from '../types'
+import { checkAnswer } from './answer'
+import { numberIndex } from './detect'
 import { datasetOf } from './review'
+
+// A sample final answer: most numbers are in the sample data, a total adds up its
+// table, the costs per conversion are Claude's own, and one cost is wrong on purpose.
+const ANSWER_EN = [
+  'SAMPLE. In October, the Google Search campaigns:',
+  '',
+  '| Campaign | Cost | Conversions | Cost per conversion |',
+  '|---|---|---|---|',
+  '| SAMPLE \\| Search \\| Brand | R$ 3,120.40 | 141 | R$ 22.13 |',
+  '| SAMPLE \\| Search \\| Generic | R$ 2,210.65 | 44 | R$ 50.24 |',
+  '| Total | R$ 5,331.05 | 185 | R$ 28.82 |',
+  '',
+  'The PMax campaign cost R$ 4,410.75 and brought 118 conversions. The Meta remarketing campaign cost R$ 1,890.00 over 31 days.',
+].join('\n')
+const ANSWER_PT = [
+  'EXEMPLO. Em outubro, as campanhas de Pesquisa do Google:',
+  '',
+  '| Campanha | Custo | Conversões | Custo por conversão |',
+  '|---|---|---|---|',
+  '| EXEMPLO \\| Pesquisa \\| Marca | R$ 3.120,40 | 141 | R$ 22,13 |',
+  '| EXEMPLO \\| Pesquisa \\| Genérica | R$ 2.210,65 | 44 | R$ 50,24 |',
+  '| Total | R$ 5.331,05 | 185 | R$ 28,82 |',
+  '',
+  'A PMax custou R$ 4.410,75 e trouxe 118 conversões. A campanha de remarketing da Meta custou R$ 1.890,00 em 31 dias.',
+].join('\n')
 
 const rand = (seed: number) => {
   let s = seed
@@ -184,6 +211,8 @@ export const buildDemo = (now: number, lang: Lang = 'en'): Demo => {
     warnings: [L('SAMPLE: Google conversions can still change for up to 30 days after the click.', 'EXEMPLO: as conversões do Google ainda podem mudar por até 30 dias depois do clique.')],
     reports: 4,
   }
+
+  review.answer = checkAnswer(pt ? ANSWER_PT : ANSWER_EN, numberIndex([...sources.values()].join('\n')), [], now, lang)
 
   return { review, calls, sources, counter: 5 }
 }

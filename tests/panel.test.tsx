@@ -233,7 +233,7 @@ test('UX: alerts lead, status is never color alone, charts have a table, long lo
   expect(await ui.find({ type: 'Text', text: /✓ Campaign/ })).toBeDefined()
   // The keyword table marks the value it could not find and the legend says why.
   expect(await ui.find({ type: 'Text', text: /421\.30!/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /! not found in the cited responses/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /! not in the account data$/ })).toBeDefined()
   // A chart opens as a table.
   await ui.press({ key: 'tbl-daily' })
   expect(await ui.find({ type: 'Button', key: 'tbl-daily', text: /Hide table/ })).toBeDefined()
@@ -249,7 +249,7 @@ test('UX: an empty panel offers the next step', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
 
   expect(await ui.find({ type: 'Text', text: /No review yet/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Checks that the numbers match the source/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Checks that the numbers match the account data/ })).toBeDefined()
   await ui.press({ key: 'load-demo' })
   expect(await ui.find({ type: 'Text', text: /SAMPLE numbers/ })).toBeDefined()
   await ui.unmount()
@@ -304,7 +304,7 @@ test('Simple view: the demo reads in plain words, with what to do and the detail
     expect(await ui.find({ type: 'Text', text: /Analyzing: Google: keywords and search terms/ })).toBeDefined()
     // Alerts in plain words, each with a next step.
     expect(await ui.find({ type: 'Text', text: /Needs your attention/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /1 number is not in the source/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /1 number is not in the account data/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /What to do:/ })).toBeDefined()
     // The three tiles and the plain period.
     expect(await ui.find({ type: 'Text', text: /October 2026/ })).toBeDefined()
@@ -382,11 +382,14 @@ test('plain alerts: the most serious first, each with a next step', () => {
   const demo = buildDemo(Date.parse('2026-11-23T12:00:00Z'), 'pt')
   const alerts = plainAlerts(demo.review, demo.calls, 'pt')
 
-  expect(alerts[0]?.title).toMatch(/não aparece na fonte/)
-  expect(alerts[0]?.body).toMatch(/exemplo tênis de corrida/)
+  // What reaches a client leads: the number of the answer that nothing backs.
+  expect(alerts[0]?.title).toBe('1 número da resposta do Claude não está nos dados da conta')
+  expect(alerts[0]?.body).toMatch(/^R\$ 1\.890,00 \(…de remarketing da Meta custou R\$ 1\.890,00 em 31 dias\.\)/)
+  expect(alerts[1]?.title).toMatch(/não está nos dados da conta/)
+  expect(alerts[1]?.body).toMatch(/exemplo tênis de corrida/)
   // The list that came back in part is a warning, so it comes before the empty query.
-  expect(alerts[1]?.title).toMatch(/pela metade/)
-  expect(alerts[1]?.todo).toMatch(/todas as páginas/)
+  expect(alerts[2]?.title).toMatch(/pela metade/)
+  expect(alerts[2]?.todo).toMatch(/todas as páginas/)
   expect(alerts.some(a => /voltou vazia/.test(a.title))).toBe(true)
   expect(alerts.some(a => /mais dias que o período/.test(a.title) && /agosto/.test(a.body ?? ''))).toBe(true)
   expect(nowLine(demo.review, 'pt')).toBe('Analisando: Google: palavras-chave e termos pesquisados')

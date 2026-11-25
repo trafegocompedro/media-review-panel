@@ -6,11 +6,12 @@ import { C, setThemeMode, barChart, columnChart, fmt, lineChart, sparkline, text
 import { buildDemo } from './demo'
 import { digestOf, unitOf } from './digest'
 import type { Digest, Metric, Total } from './digest'
-import { OWN_TOOL, accountsIn, classify, classifyOutput, extract, parseScripts, platformOf, readResult, savedPath, toNumber } from './detect'
+import { checkAnswer } from './answer'
+import { OWN_TOOL, accountsIn, classify, classifyOutput, extract, numberIndex, parseScripts, platformOf, readResult, savedPath, toNumber } from './detect'
 import { LEVELS, guessLang, levelName, mascotText, strings } from './i18n'
 import type { MascotKey } from './i18n'
 import { robot, robotText } from './mascot'
-import { applyReport, autoWarnings, daysBetween, mergeAccount, newReview } from './review'
+import { answerWarnings, applyReport, autoWarnings, daysBetween, mergeAccount, newReview } from './review'
 import { capital, checkTotals, friendlyCurrency, friendlyTimezone, glossary, naturalRange, nowLine, plainAlerts, plainColumn, stepPosition } from './plain'
 
 const PANE = 'media-review'
@@ -45,6 +46,27 @@ const keepSource = (n: number, text: string) => {
   }
 }
 const sourceText = (n: number) => sources.get(n)
+
+// Everything else Claude read (a plan, a note, a sheet) and what the person wrote,
+// kept in memory only: a number of the answer found there is not invented.
+const others: string[] = []
+const MAX_OTHER = 100_000
+const keepOther = (text: string) => {
+  if (text.trim() === '') return
+  others.push(text.length > MAX_OTHER ? text.slice(0, MAX_OTHER) : text)
+  if (others.length > 40) others.splice(0, others.length - 40)
+}
+const keepOtherResult = (r: ToolCallResult) => {
+  try {
+    if (r.deny === undefined && !r.isError) keepOther(textOf(r))
+  } catch {
+    // Keeping a copy must never change the call.
+  }
+}
+
+// Whether this turn of the main loop read media data or reported to the panel:
+// only then is its answer checked.
+let touchedTurn = false
 
 /** The saved file of a result too large for the model, or undefined when it can't be read. */
 const readSaved = async ($: EngineInterface, path: string): Promise<string | undefined> => {
@@ -342,6 +364,9 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    // A number the person gave (a budget, a goal) is not invented when Claude repeats it.
+    if (e.isMeta === undefined && typeof e.text === 'string') keepOther(e.text)
+
     if (langOption === 'auto' && e.command === undefined && e.isMeta === undefined) {
       const guess = guessLang(e.text)
 
@@ -355,21 +380,36 @@ export const register: Register = (on, options) => {
     const input = e as unknown as Record<string, unknown>
     const tool = String(e.tool)
 
-    if (tool === OWN_TOOL) return answerReport($, input, langOption, autoOpen)
+    if (tool === OWN_TOOL) {
+      touchedTurn = true
+
+      return answerReport($, input, langOption, autoOpen)
+    }
 
     const current = await read($, review)
     const isActive = current !== null && !current.isDemo && (current.status === 'running' || current.status === 'paused')
     const before = classify(tool, input, isActive, scripts)
 
-    if (before === undefined && tool !== 'Bash') return next(e)
+    if (before === undefined && tool !== 'Bash') {
+      const other = await next(e)
+      keepOtherResult(other)
+
+      return other
+    }
 
     // A terminal command the input did not give away is judged by what it printed.
     const startedAt = await $.clock.now()
     const early = before === undefined ? await next(e) : undefined
     const det = before ?? (early ? classifyOutput(String(input.command ?? ''), textOf(early)) : undefined)
 
-    if (det === undefined) return early ?? next(e)
+    if (det === undefined) {
+      const other = early ?? (await next(e))
+      keepOtherResult(other)
 
+      return other
+    }
+
+    touchedTurn = true
     const n = await update($, counter, c => c + 1)
     const x = extract(tool, input)
     const hadReview = current?.id
@@ -538,11 +578,49 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
+    // The answer is what reaches a client: every number in it is looked up in
+    // what this review read. Only the main loop's answer, and only after a turn
+    // that read media data or reported to the panel.
+    let isSuspect = false
+
+    if (e.agentId === undefined) {
+      const touched = touchedTurn
+      touchedTurn = false
+      const cur = await read($, review)
+
+      if (touched && !e.isAborted && cur !== null && !cur.isDemo && typeof e.answer === 'string' && e.answer.trim() !== '') {
+        const list = await read($, calls)
+        const media = list
+          .filter(c => c.n >= cur.firstCall)
+          .map(c => sources.get(c.n))
+          .filter((x): x is string => x !== undefined)
+
+        if (media.length > 0) {
+          const at = await $.clock.now()
+          const lg = await read($, lang)
+          const check = checkAnswer(e.answer, numberIndex(media.join('\n')), numberIndex(others.join('\n')), at, lg)
+
+          await update($, review, rv => (rv === null || rv.id !== cur.id ? rv : { ...rv, answer: check }))
+
+          if (check.missing.length > 0) {
+            isSuspect = true
+            await say($, 'm_answer', 'sus')
+
+            try {
+              await $.ui.toast(strings(lg).toastAnswer(check.missing.length))
+            } catch {
+              // A surface without toasts still has the panel.
+            }
+          }
+        }
+      }
+    }
+
     const r = await read($, review)
 
     if (r !== null && r.status === 'running' && !r.isDemo) {
       await update($, review, cur => (cur === null ? cur : { ...cur, status: 'paused' as const }))
-      await say($, 'm_paused', 'pause')
+      if (!isSuspect) await say($, 'm_paused', 'pause')
     }
 
     return next(e)
@@ -628,7 +706,7 @@ export const register: Register = (on, options) => {
     const mood: Mood = isAsleep ? 'sleep' : (m?.mood ?? 'hello')
     const bubble = mascotText(lg, isAsleep ? 'm_sleep' : (m?.key ?? 'm_hello'))
     // What needs a second look, found by the panel or reported by Claude.
-    const alerts = rv === null ? [] : [...rv.warnings, ...autoWarnings(rv, list, lg)]
+    const alerts = rv === null ? [] : [...answerWarnings(rv, lg), ...rv.warnings, ...autoWarnings(rv, list, lg)]
     const statusWord = t[`status_${status}` as 'status_idle']
     const title = rv?.title ?? (rv?.isAuto ? t.autoTitle : t.untitled)
     const progress =
@@ -864,6 +942,7 @@ export const register: Register = (on, options) => {
       const parts = [`${c.found} ${t.found}`, `${c.missing} ${t.missing}`]
 
       if (c.summed) parts.push(t.bySum(c.summed))
+      if (c.common) parts.push(`${c.common} ${t.common}`)
       if (c.calculated) parts.push(`${c.calculated} ${t.calculated}`)
       if (c.unchecked) parts.push(`${c.unchecked} ${t.unchecked}`)
 
@@ -878,6 +957,7 @@ export const register: Register = (on, options) => {
       const shown = ds.rows.slice(0, 25)
       const xIdx = Math.max(0, ds.columns.indexOf(ds.x ?? ds.columns[0] ?? ''))
       const missing = new Set(ds.check.missingCells)
+      const common = new Set(ds.check.commonCells ?? [])
       const isCalc = (ci: number) => ds.calculated.includes(ds.columns[ci] ?? '')
       const head = (h: string, ci: number) => {
         const name = simple ? plainColumn(h, lg) : h
@@ -892,13 +972,14 @@ export const register: Register = (on, options) => {
         const n = toNumber(v)
         const text = n === undefined ? String(v) : fmt(n, lg, seriesUnit(ds.columns[ci] ?? '', ds), ds.currency ?? rv?.currency)
 
-        return missing.has(`${ri}:${ci}`) ? `${text}!` : text
+        return missing.has(`${ri}:${ci}`) ? `${text}!` : common.has(`${ri}:${ci}`) ? `${text}?` : text
       }
       const widths = ds.columns.map((h, ci) =>
         Math.min(ci === xIdx ? 30 : 16, Math.max(head(h, ci).length, ...shown.map((r, ri) => cellText(r[ci], ci, ri).length))),
       )
       const hasMissing = shown.some((r, ri) => ds.columns.some((_, ci) => missing.has(`${ri}:${ci}`)))
       const hasCalc = ds.columns.some((_, ci) => isCalc(ci))
+      const hasCommon = shown.some((r, ri) => ds.columns.some((_, ci) => common.has(`${ri}:${ci}`)))
       const pad = (s: string, w: number, right: boolean) => {
         const cut = s.length > w ? `${s.slice(0, w - 1)}…` : s
 
@@ -913,7 +994,7 @@ export const register: Register = (on, options) => {
           {shown.map((row, ri) => (
             <Text mono size="caption" color={C.text}>
               {ds.columns.map((_, ci) => (
-                <Text color={missing.has(`${ri}:${ci}`) ? C.err : isCalc(ci) ? C.muted : C.text}>
+                <Text color={missing.has(`${ri}:${ci}`) ? C.err : isCalc(ci) || common.has(`${ri}:${ci}`) ? C.muted : C.text}>
                   {pad(cellText(row[ci], ci, ri), widths[ci] ?? 8, ci !== xIdx)}
                   {ci < ds.columns.length - 1 ? '  ' : ''}
                 </Text>
@@ -922,6 +1003,7 @@ export const register: Register = (on, options) => {
           ))}
           {ds.totalRows > shown.length ? muteDim(t.showing(shown.length, ds.totalRows)) : null}
           {hasMissing ? muteDim(t.missingLegend) : null}
+          {hasCommon ? muteDim(t.commonLegend) : null}
           {hasCalc ? muteDim(t.calcLegend) : null}
         </Box>
       )
@@ -1480,12 +1562,64 @@ export const register: Register = (on, options) => {
         {tile(
           t.tileChecked,
           checkedAll > 0 ? `${totals.found} ${t.of} ${checkedAll}` : t.noneYet,
-          totals.missing > 0 ? t.notMatch(totals.missing) : totals.found > 0 ? t.allMatch : '',
+          [totals.missing > 0 ? t.notMatch(totals.missing) : totals.found > 0 ? t.allMatch : '', totals.common > 0 ? t.commonNote(totals.common) : '']
+            .filter(Boolean)
+            .join(' · '),
           totals.missing > 0 ? C.warnText : C.okText,
           checkedAll > 0 ? 'title' : 'heading',
         )}
       </Box>
     ) : null
+
+    // Claude's last answer: each number looked up in what this review read.
+    const ans = rv?.answer
+    const answerLines = (): RenderElement[] => {
+      if (!ans) return []
+      if (ans.total === 0) return [muteDim(t.ansNone)]
+
+      const line = (text: string, color: string) => (
+        <Text size="footnote" color={color}>
+          {text}
+        </Text>
+      )
+      const out: RenderElement[] = [
+        <Text color={C.bright} weight="medium">
+          {t.ansTotal(ans.total)}
+        </Text>,
+      ]
+
+      if (ans.missing.length > 0) out.push(line(t.ansMissing(ans.missing.length), C.warnText))
+      if (ans.found > 0) out.push(line(t.ansFound(ans.found), C.okText))
+      if (ans.summed > 0) out.push(line(t.ansSummed(ans.summed), C.okText))
+      if (ans.elsewhere > 0) out.push(line(t.ansElsewhere(ans.elsewhere), C.text))
+      if (ans.calculated > 0) out.push(line(t.ansCalculated(ans.calculated), C.muted))
+      if (ans.common > 0) out.push(line(t.ansCommon(ans.common), C.muted))
+
+      if (ans.missing.length > 0) {
+        const shown = ans.missing.slice(0, 6)
+
+        out.push(
+          <Box flexDirection="column" backgroundColor={C.grid} paddingX={1}>
+            <Text size="footnote" weight="semibold" color={C.bright}>
+              {t.ansMissingHead}
+            </Text>
+            {shown.map(m => (
+              <Text size="footnote" color={C.text}>
+                <Text color={C.warnText} weight="semibold">
+                  {`! ${m.text}`}
+                </Text>
+                {m.context ? <Text color={C.muted}>{`  ${m.context}`}</Text> : null}
+              </Text>
+            ))}
+            {ans.missing.length > shown.length ? muteDim(t.ansMore(ans.missing.length - shown.length)) : null}
+          </Box>,
+        )
+      }
+      out.push(muteDim(t.ansExplain))
+
+      return out
+    }
+    const answerCard = ans ? card(t.ansTitle, answerLines()) : null
 
     // The steps as a path: done, happening now, still to come.
     const stepsCard =
@@ -1554,6 +1688,7 @@ export const register: Register = (on, options) => {
         if (c.missing > 0) out.push(pill(t.badgeMissing(c.missing), C.warnText, C.warnBg))
         if (total > 0) out.push(pill(t.badgeOk(c.found, total), C.okText, C.okBg))
         if (c.summed) out.push(pill(t.badgeSummed(c.summed), C.okText, C.okBg))
+        if (c.common) out.push(pill(t.badgeCommon(c.common), C.muted, C.grid))
       }
       if (c.calculated > 0) out.push(pill(t.badgeCalc(c.calculated), C.muted, C.grid))
       if (c.unchecked > 0) out.push(pill(t.badgeUnchecked(c.unchecked), C.muted, C.grid))
@@ -1868,6 +2003,7 @@ export const register: Register = (on, options) => {
           {sampleBanner}
           {attention}
           {tiles}
+          {answerCard}
           {stepsCard}
           {numbersBlock}
           {ladder}
@@ -1893,6 +2029,7 @@ export const register: Register = (on, options) => {
         {header}
         {sample}
         {alertStrip}
+        {ans ? section('answer', t.sec_answer, ans.total > 0 ? `${ans.found}/${ans.total}` : undefined, answerLines) : null}
         {section('accounts', t.sec_accounts, String(rv?.accounts.length ?? 0), accountsBody)}
         {section('status', t.sec_status, steps.length ? `${stepsDone}/${steps.length}` : undefined, statusBody)}
         {section('level', t.sec_level, undefined, levelBody)}

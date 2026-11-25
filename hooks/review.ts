@@ -11,7 +11,7 @@ import type {
   StepStatus,
   SumSpec,
 } from '../types'
-import { checkSum, isInSource, numberIndex, toNumber } from './detect'
+import { checkSum, isCommon, isInSource, numberIndex, toNumber } from './detect'
 import { normalizeLevel, strings } from './i18n'
 
 export const MAX_ROWS = 400
@@ -112,7 +112,21 @@ export const checkDataset = (ds: Omit<Dataset, 'check'>, sourceText: (n: number)
   const isPartial = known.length > 0 && known.length < texts.length
   const index = known.length > 0 ? numberIndex(known.join('\n')) : []
   const sums = new Map((ds.sums ?? []).map(s => [`${s.row}:${ds.columns.indexOf(s.column)}`, s.parts]))
-  const result: CheckResult = { found: 0, missing: 0, calculated: 0, unchecked: 0, summed: 0, missingSamples: [], missingCells: [] }
+  const result: CheckResult = {
+    found: 0,
+    missing: 0,
+    calculated: 0,
+    unchecked: 0,
+    summed: 0,
+    common: 0,
+    missingSamples: [],
+    missingCells: [],
+    commonCells: [],
+  }
+  const markCommon = (r: number, c: number) => {
+    result.common = (result.common ?? 0) + 1
+    if ((result.commonCells ?? []).length < 400) result.commonCells = [...(result.commonCells ?? []), `${r}:${c}`]
+  }
 
   if (ds.sourceCalls.length === 0) result.note = 'none-cited'
   else if (known.length === 0) result.note = 'not-in-memory'
@@ -135,7 +149,10 @@ export const checkDataset = (ds: Omit<Dataset, 'check'>, sourceText: (n: number)
 
         return
       }
-      if (isInSource(index, v)) {
+      const isFound = isInSource(index, v)
+
+      // Found, and its neighbours are not: that means something.
+      if (isFound && !isCommon(index, v)) {
         result.found += 1
 
         return
@@ -145,8 +162,18 @@ export const checkDataset = (ds: Omit<Dataset, 'check'>, sourceText: (n: number)
       const sum = parts ? checkSum(index, v, parts) : undefined
 
       if (sum?.ok) {
-        result.found += 1
-        result.summed = (result.summed ?? 0) + 1
+        // The addition is right; it proves the total only if its parts prove themselves.
+        if (parts?.every(p => !isCommon(index, p))) {
+          result.found += 1
+          result.summed = (result.summed ?? 0) + 1
+        } else markCommon(r, c)
+
+        return
+      }
+      // Found, but so is nearly every number of its size: neither proof nor alarm.
+      // Parts that are all there and add up to something else are an alarm.
+      if (isFound && !(sum && sum.absent === 0)) {
+        markCommon(r, c)
 
         return
       }
@@ -304,10 +331,11 @@ export const applyReport = (
     r.datasets = at < 0 ? [...others, ds].slice(-MAX_DATASETS) : r.datasets.map(x => (x.id === ds.id ? ds : x))
 
     const c = ds.check
-    const head = `Dataset "${ds.title}": ${c.found} found, ${c.missing} not found, ${c.calculated} calculated, ${c.unchecked} unchecked.`
+    const head = `Dataset "${ds.title}": ${c.found} found, ${c.missing} not found, ${c.calculated} calculated, ${c.unchecked} unchecked${c.common ? `, ${c.common} too common to check` : ''}.`
     const sent = arr((d as In)?.sums).length
 
     notes.push(c.summed ? `${head} ${c.summed} of the found were confirmed by adding up their parts.` : head)
+    if (c.common) notes.push('  Too common to check: small counts whose neighbours also appear in the responses, so finding them proves nothing. Nothing to fix.')
     if (sent > (ds.sums?.length ?? 0)) notes.push(`  ${sent - (ds.sums?.length ?? 0)} of the sums were skipped: each needs a row (index from 0 or the x value), a column of the dataset and parts as numbers.`)
     if (c.note === 'none-cited') notes.push('  It cites no source_calls, so nothing could be checked. Cite the call numbers the panel gave.')
     if (c.note === 'not-in-memory') notes.push('  The cited calls are no longer in memory (the panel reloaded), so nothing could be checked.')
@@ -407,6 +435,13 @@ export const autoWarnings = (review: Review, calls: CallLog[], lang: Lang): stri
   }
 
   return out
+}
+
+/** The numbers of Claude's last answer that nothing backs: what reaches a client, so it leads. */
+export const answerWarnings = (review: Review, lang: Lang): string[] => {
+  const missed = review.answer?.missing ?? []
+
+  return missed.length > 0 ? [strings(lang).w_answer(missed.length, missed.slice(0, 4).map(m => m.text).join(', '))] : []
 }
 
 export const daysBetween = (a: string, b: string): number | undefined => {

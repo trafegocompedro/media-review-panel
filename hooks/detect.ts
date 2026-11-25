@@ -464,10 +464,16 @@ export const checkSum = (sorted: number[], v: number, parts: number[]): SumCheck
  * platforms store it: rounded to the shown precision, in micros (Google
  * cost), in cents, or as a fraction for a percentage.
  */
-export const isInSource = (sorted: number[], v: number): boolean => {
+export const isInSource = (sorted: number[], v: number): boolean => isNear(sorted, v, toleranceOf(v))
+
+/** Half a unit of the last decimal written: 12 → 0.5, 12.3 → 0.05. */
+export const toleranceOf = (v: number): number => 0.5 * Math.pow(10, -decimalsOf(v))
+
+/** `isInSource` with the rounding given: a number written "12,3 mil" is 12300 ± 50. */
+export const isNear = (sorted: number[], v: number, tolerance: number): boolean => {
   if (sorted.length === 0) return false
 
-  const tol = 0.5 * Math.pow(10, -decimalsOf(v)) + 1e-9
+  const tol = tolerance + 1e-9
   const probes: [number, number][] = [
     [v, tol],
     [v * 1e6, tol * 1e6],
@@ -476,6 +482,33 @@ export const isInSource = (sorted: number[], v: number): boolean => {
   ]
 
   return probes.some(([x, t]) => within(sorted, x - t, x + t))
+}
+
+/** How many neighbours of a number the panel tries, and how many may show up by chance. */
+export const DECOYS = 12
+const DECOYS_ALLOWED = 1
+
+/**
+ * Whether finding `v` in this source proves little: the numbers right next to
+ * it (one rounding step away, six on each side) show up too. A small count
+ * (3 conversions, 12 clicks) is found in almost any answer that lists days or
+ * campaigns, so its presence says nothing about this cell. A cost with cents
+ * is not: its neighbours are not there, so finding it means something.
+ */
+export const isCommon = (sorted: number[], v: number, tolerance: number = toleranceOf(v)): boolean => {
+  if (sorted.length === 0) return false
+
+  const step = 2 * tolerance
+  let hits = 0
+
+  for (let k = 1; k <= DECOYS / 2; k += 1) {
+    for (const d of [v + k * step, v - k * step]) {
+      if (isNear(sorted, d, tolerance)) hits += 1
+      if (hits > DECOYS_ALLOWED) return true
+    }
+  }
+
+  return false
 }
 
 export const toNumber = (cell: unknown): number | undefined => {
