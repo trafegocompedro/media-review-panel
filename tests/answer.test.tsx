@@ -336,3 +336,31 @@ test('answer: a precise number not found raises the alert; a round one is listed
   expect(c.missing.map(m => m.text)).toEqual(['R$ 2.425,00', 'R$ 1.234,56', '15.230'])
   expect((c.unseen ?? []).map(m => m.text)).toEqual(['R$ 3.000', 'R$ 1.000,00', '869'])
 })
+
+test('language: a bare slash command leaves it open, and the answer settles it', async ($, on) => {
+  const toasts: string[] = []
+  engine(on, toasts)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: '/pacing-report', command: 'pacing-report', wait: false, origin: { kind: 'composer' } } as never)
+  await $.tool.call({ tool: 'mcp__meta__ads_get_ad_entities', ad_account_id: 'act_123456789', level: 'campaign' })
+  await $.turn.complete(turnEnd('A campanha Brand investiu R$ 1.234,56 no mês, então está no ritmo da verba.'))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+
+  expect(await ui.find({ type: 'Text', text: /^✓ 1 encontrado nos dados da conta$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('language: what the person wrote wins over the answer', async ($, on) => {
+  const toasts: string[] = []
+  engine(on, toasts)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'Please review the campaigns in this account', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: 'mcp__meta__ads_get_ad_entities', ad_account_id: 'act_123456789', level: 'campaign' })
+  await $.turn.complete(turnEnd('A campanha Brand investiu R$ 1.234,56 no mês, então está no ritmo da verba.'))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+
+  expect(await ui.find({ type: 'Text', text: /^✓ 1 found in the account data$/ })).toBeDefined()
+  await ui.unmount()
+})

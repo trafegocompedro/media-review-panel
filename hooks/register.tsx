@@ -103,6 +103,8 @@ const keepOtherResult = (r: ToolCallResult) => {
 // Whether this turn of the main loop read media data or reported to the panel:
 // only then is its answer checked.
 let touchedTurn = false
+// True once a message (or the report) said the language, so an answer never overrides it.
+let langSure = false
 
 /** The saved file of a result too large for the model, or undefined when it can't be read. */
 const readSaved = async ($: EngineInterface, path: string): Promise<string | undefined> => {
@@ -318,6 +320,7 @@ async function answerReport($: EngineInterface, input: Record<string, unknown>, 
 
   if (langOption === 'auto' && typeof input.language === 'string') {
     const l: Lang = input.language.toLowerCase().startsWith('pt') ? 'pt' : 'en'
+    langSure = true
     await update($, lang, () => l)
   }
 
@@ -408,6 +411,7 @@ export const register: Register = (on, options) => {
     if (typeof stored === 'boolean') await update($, muted, () => stored)
     else if (options.mascot === 'off') await update($, muted, () => true)
 
+    langSure = false
     if (langOption !== 'auto') await update($, lang, () => langOption)
 
     const storedMode = await $.store.get('mode')
@@ -421,10 +425,15 @@ export const register: Register = (on, options) => {
     // A number the person gave (a budget, a goal) is not invented when Claude repeats it.
     if (e.isMeta === undefined && typeof e.text === 'string') keepOther(e.text)
 
-    if (langOption === 'auto' && e.command === undefined && e.isMeta === undefined) {
-      const guess = guessLang(e.text)
+    // A slash command counts too (its words, or the text it expands to); only
+    // the panel's own command is left out, since `/media-review en` sets it.
+    if (langOption === 'auto' && e.isMeta === undefined && e.command !== 'media-review' && typeof e.text === 'string') {
+      const guess = guessLang(e.text.replace(/^\/\S+/, ''))
 
-      if (guess) await update($, lang, () => guess)
+      if (guess) {
+        langSure = true
+        await update($, lang, () => guess)
+      }
     }
 
     return next(e)
@@ -703,6 +712,17 @@ export const register: Register = (on, options) => {
     let isSuspect = false
 
     if (e.agentId === undefined) {
+      // No message said the language yet (a bare slash command, a resumed
+      // session): Claude's own answer does, so the next review is not in English by default.
+      if (langOption === 'auto' && !langSure && typeof e.answer === 'string') {
+        const guess = guessLang(e.answer)
+
+        if (guess) {
+          langSure = true
+          await update($, lang, () => guess)
+        }
+      }
+
       const touched = touchedTurn
       touchedTurn = false
       const cur = await read($, review)
